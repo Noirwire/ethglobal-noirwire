@@ -49,8 +49,17 @@ abstract contract Base is Test {
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
 
+    uint32 internal constant SOLANA_DOMAIN = 5;
+    uint32 internal constant SEPOLIA_DOMAIN = 0;
+    uint32 internal constant ARBITRUM_DOMAIN = 3;
+    uint32 internal constant BASE_DOMAIN = 6;
+
     bytes32 internal sourceMessenger = bytes32(uint256(0xBEEF));
     bytes32 internal sourceUsdcMint = bytes32(uint256(0xC0FFEE));
+    bytes32 internal evmMessenger = bytes32(uint256(uint160(0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA)));
+    bytes32 internal sepoliaUsdc = bytes32(uint256(uint160(0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238)));
+    bytes32 internal baseUsdc = bytes32(uint256(uint160(0x036CbD53842c5426634e7929541eC2318f3dCF7e)));
+    bytes32 internal arbitrumUsdc = bytes32(uint256(uint160(0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d)));
     bytes32 internal localMessenger = bytes32(uint256(0x5013));
 
     function setUp() public virtual {
@@ -67,14 +76,13 @@ abstract contract Base is Test {
 
         transmitter =
             new MockMessageTransmitterV2(usdc, vm.addr(ATTESTER_KEY), ARC_DOMAIN, makeAddr("feeSink"), address(this));
+        HookExecutor.SourceRoute[] memory sources = new HookExecutor.SourceRoute[](4);
+        sources[0] = HookExecutor.SourceRoute(SOLANA_DOMAIN, sourceMessenger, sourceUsdcMint);
+        sources[1] = HookExecutor.SourceRoute(SEPOLIA_DOMAIN, evmMessenger, sepoliaUsdc);
+        sources[2] = HookExecutor.SourceRoute(BASE_DOMAIN, evmMessenger, baseUsdc);
+        sources[3] = HookExecutor.SourceRoute(ARBITRUM_DOMAIN, evmMessenger, arbitrumUsdc);
         executor = new HookExecutor(
-            IMessageTransmitterV2(address(transmitter)),
-            usdc,
-            vault,
-            sourceMessenger,
-            sourceUsdcMint,
-            localMessenger,
-            address(this)
+            IMessageTransmitterV2(address(transmitter)), usdc, vault, sources, localMessenger, address(this)
         );
 
         usdc.mint(alice, 10_000_000e6);
@@ -130,12 +138,23 @@ abstract contract Base is Test {
     }
 
     function _default(uint256 amount, bytes memory hookData, bytes32 nonce) internal view returns (Msg memory m) {
+        m = _from(SOLANA_DOMAIN, sourceMessenger, sourceUsdcMint, amount, hookData, nonce);
+    }
+
+    function _from(
+        uint32 domain,
+        bytes32 messenger,
+        bytes32 burnToken,
+        uint256 amount,
+        bytes memory hookData,
+        bytes32 nonce
+    ) internal view returns (Msg memory m) {
         bytes32 self = bytes32(uint256(uint160(address(executor))));
         m = Msg({
             version: 1,
-            sourceDomain: 5,
-            sender: sourceMessenger,
-            burnToken: sourceUsdcMint,
+            sourceDomain: domain,
+            sender: messenger,
+            burnToken: burnToken,
             recipient: localMessenger,
             destinationCaller: self,
             mintRecipient: self,

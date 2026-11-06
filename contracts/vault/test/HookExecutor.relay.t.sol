@@ -26,11 +26,79 @@ contract HookExecutorRelayTest is Base {
         _expectRevertRelay(m, abi.encodeWithSelector(HookExecutor.HookExecutor__BadVersion.selector));
     }
 
-    function testFuzz_RevertWhen_TheSourceDomainIsNotSolana(uint32 domain, bytes32 nonce) external {
-        vm.assume(domain != 5);
+    function testFuzz_RevertWhen_TheSourceDomainIsNotListed(uint32 domain, bytes32 nonce) external {
+        vm.assume(domain != SOLANA_DOMAIN && domain != SEPOLIA_DOMAIN && domain != BASE_DOMAIN);
+        vm.assume(domain != ARBITRUM_DOMAIN);
         Msg memory m = _default(1e6, _hook(alice, uint64(block.timestamp + 1)), nonce);
         m.sourceDomain = domain;
         _expectRevertRelay(m, abi.encodeWithSelector(HookExecutor.HookExecutor__WrongSourceDomain.selector, domain));
+    }
+
+    function testFuzz_WhenAnEvmDomainBurnsItsOwnToken_ForwardsTheDeposit(uint256 amount, bytes32 nonce) external {
+        amount = bound(amount, 1, MAX_DEPOSIT / 4);
+        bytes memory hook = _hook(alice, uint64(block.timestamp + 1));
+        uint32[3] memory domains = [SEPOLIA_DOMAIN, BASE_DOMAIN, ARBITRUM_DOMAIN];
+        bytes32[3] memory tokens = [sepoliaUsdc, baseUsdc, arbitrumUsdc];
+        for (uint256 i; i < domains.length; ++i) {
+            bytes32 domainNonce = keccak256(abi.encode(nonce, i));
+            vm.expectEmit(true, true, false, true, address(executor));
+            emit HookExecutor.DepositForwarded(domainNonce, alice, DEPOSITOR, amount);
+            _relay(_from(domains[i], evmMessenger, tokens[i], amount, hook, domainNonce));
+            assertTrue(executor.processed(domainNonce));
+        }
+        (, uint192 pending) = vault.depositRequests(alice);
+        assertEq(pending, amount * 3);
+    }
+
+    function testFuzz_RevertWhen_AnEvmDomainUsesAnotherDomainsBurnToken(bytes32 nonce) external {
+        bytes memory hook = _hook(alice, uint64(block.timestamp + 1));
+        bytes4 wrongToken = HookExecutor.HookExecutor__WrongBurnToken.selector;
+        _expectRevertRelay(
+            _from(SEPOLIA_DOMAIN, evmMessenger, baseUsdc, 1e6, hook, nonce), abi.encodeWithSelector(wrongToken)
+        );
+        _expectRevertRelay(
+            _from(BASE_DOMAIN, evmMessenger, arbitrumUsdc, 1e6, hook, nonce), abi.encodeWithSelector(wrongToken)
+        );
+        _expectRevertRelay(
+            _from(ARBITRUM_DOMAIN, evmMessenger, sourceUsdcMint, 1e6, hook, nonce), abi.encodeWithSelector(wrongToken)
+        );
+        _expectRevertRelay(
+            _from(SOLANA_DOMAIN, sourceMessenger, sepoliaUsdc, 1e6, hook, nonce), abi.encodeWithSelector(wrongToken)
+        );
+    }
+
+    function testFuzz_RevertWhen_AnEvmDomainUsesAnotherMessenger(bytes32 sender, bytes32 nonce) external {
+        vm.assume(sender != evmMessenger);
+        bytes memory hook = _hook(alice, uint64(block.timestamp + 1));
+        bytes memory wrongSender = abi.encodeWithSelector(HookExecutor.HookExecutor__WrongSourceSender.selector);
+        _expectRevertRelay(_from(SEPOLIA_DOMAIN, sender, sepoliaUsdc, 1e6, hook, nonce), wrongSender);
+        _expectRevertRelay(_from(BASE_DOMAIN, sourceMessenger, baseUsdc, 1e6, hook, nonce), wrongSender);
+        _expectRevertRelay(_from(ARBITRUM_DOMAIN, sender, arbitrumUsdc, 1e6, hook, nonce), wrongSender);
+        _expectRevertRelay(_from(SOLANA_DOMAIN, evmMessenger, sourceUsdcMint, 1e6, hook, nonce), wrongSender);
+    }
+
+    function testFuzz_RevertWhen_AnEvmMessageHasAnotherRouteFieldWrong(bytes32 other, bytes32 nonce) external {
+        vm.assume(other != bytes32(uint256(uint160(address(executor)))));
+        bytes memory hook = _hook(alice, uint64(block.timestamp + 1));
+        Msg memory m = _from(BASE_DOMAIN, evmMessenger, baseUsdc, 1e6, hook, nonce);
+        m.destinationCaller = other;
+        _expectRevertRelay(m, abi.encodeWithSelector(HookExecutor.HookExecutor__WrongDestinationCaller.selector));
+        m = _from(BASE_DOMAIN, evmMessenger, baseUsdc, 1e6, hook, nonce);
+        m.mintRecipient = other;
+        _expectRevertRelay(m, abi.encodeWithSelector(HookExecutor.HookExecutor__WrongMintRecipient.selector));
+        m = _from(BASE_DOMAIN, evmMessenger, baseUsdc, 1e6, hook, nonce);
+        m.version = 2;
+        _expectRevertRelay(m, abi.encodeWithSelector(HookExecutor.HookExecutor__BadVersion.selector));
+    }
+
+    function testFuzz_GivenAnEvmDomain_QuarantinesAHookWhoseDepositorIsNotTheSender(bytes32 depositor, bytes32 nonce)
+        external
+    {
+        vm.assume(depositor != DEPOSITOR);
+        vm.assume(nonce != bytes32(0));
+        bytes memory hook = abi.encode(uint8(1), alice, depositor, uint64(block.timestamp + 1));
+        _relay(_from(BASE_DOMAIN, evmMessenger, baseUsdc, 1e6, hook, nonce));
+        assertEq(executor.quarantined(nonce), 1e6);
     }
 
     function testFuzz_RevertWhen_TheHeaderSenderIsWrong(bytes32 sender, bytes32 nonce) external {

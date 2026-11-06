@@ -3,9 +3,19 @@ HookExecutorRelayTest
 │   └── it should revert
 ├── when the message version is wrong
 │   └── it should revert
-├── when the source domain is not Solana
+├── when the source domain is not listed
 │   └── it should revert
-├── when the header sender is not the configured Solana token messenger
+├── when an EVM domain burns its own token through its own messenger
+│   └── it should forward the deposit
+├── when an EVM domain uses another domain's burn token
+│   └── it should revert
+├── when an EVM domain uses another domain's messenger
+│   └── it should revert
+├── when an EVM message has a wrong destination caller, mint recipient or version
+│   └── it should revert
+├── when an EVM hook depositor is not the burn sender
+│   └── it should quarantine the USDC under the nonce
+├── when the header sender is not the configured token messenger of the source domain
 │   └── it should revert
 ├── when the header recipient is not the configured local token messenger
 │   └── it should revert

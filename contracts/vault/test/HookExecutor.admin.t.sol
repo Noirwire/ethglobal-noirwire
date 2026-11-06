@@ -11,22 +11,46 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 contract HookExecutorAdminTest is Base {
     function test_RevertWhen_TheConstructorGetsAZeroAddress() external {
         IMessageTransmitterV2 t = IMessageTransmitterV2(address(transmitter));
+        HookExecutor.SourceRoute[] memory none = new HookExecutor.SourceRoute[](0);
         vm.expectRevert(HookExecutor.HookExecutor__ZeroAddress.selector);
-        new HookExecutor(
-            IMessageTransmitterV2(address(0)), usdc, vault, bytes32(0), bytes32(0), bytes32(0), address(this)
-        );
+        new HookExecutor(IMessageTransmitterV2(address(0)), usdc, vault, none, bytes32(0), address(this));
         vm.expectRevert(HookExecutor.HookExecutor__ZeroAddress.selector);
-        new HookExecutor(t, IERC20(address(0)), vault, bytes32(0), bytes32(0), bytes32(0), address(this));
+        new HookExecutor(t, IERC20(address(0)), vault, none, bytes32(0), address(this));
         vm.expectRevert(HookExecutor.HookExecutor__ZeroAddress.selector);
-        new HookExecutor(t, usdc, ShareVault(address(0)), bytes32(0), bytes32(0), bytes32(0), address(this));
+        new HookExecutor(t, usdc, ShareVault(address(0)), none, bytes32(0), address(this));
+    }
+
+    function test_RevertWhen_TheConstructorGetsAnInvalidOrDuplicateSource() external {
+        IMessageTransmitterV2 t = IMessageTransmitterV2(address(transmitter));
+        HookExecutor.SourceRoute[] memory sources = new HookExecutor.SourceRoute[](1);
+        sources[0] = HookExecutor.SourceRoute(BASE_DOMAIN, bytes32(0), baseUsdc);
+        vm.expectRevert(abi.encodeWithSelector(HookExecutor.HookExecutor__InvalidSource.selector, BASE_DOMAIN));
+        new HookExecutor(t, usdc, vault, sources, localMessenger, address(this));
+
+        sources[0] = HookExecutor.SourceRoute(BASE_DOMAIN, evmMessenger, bytes32(0));
+        vm.expectRevert(abi.encodeWithSelector(HookExecutor.HookExecutor__InvalidSource.selector, BASE_DOMAIN));
+        new HookExecutor(t, usdc, vault, sources, localMessenger, address(this));
+
+        sources = new HookExecutor.SourceRoute[](2);
+        sources[0] = HookExecutor.SourceRoute(BASE_DOMAIN, evmMessenger, baseUsdc);
+        sources[1] = HookExecutor.SourceRoute(BASE_DOMAIN, evmMessenger, sepoliaUsdc);
+        vm.expectRevert(abi.encodeWithSelector(HookExecutor.HookExecutor__DuplicateSource.selector, BASE_DOMAIN));
+        new HookExecutor(t, usdc, vault, sources, localMessenger, address(this));
     }
 
     function test_WhenTheArgumentsAreValid_StoresThem() external view {
         assertEq(address(executor.TRANSMITTER()), address(transmitter));
         assertEq(address(executor.USDC()), address(usdc));
         assertEq(address(executor.VAULT()), address(vault));
-        assertEq(executor.sourceTokenMessenger(), sourceMessenger);
-        assertEq(executor.sourceBurnToken(), sourceUsdcMint);
+        assertEq(executor.sourceTokenMessenger(SOLANA_DOMAIN), sourceMessenger);
+        assertEq(executor.sourceBurnToken(SOLANA_DOMAIN), sourceUsdcMint);
+        assertEq(executor.sourceTokenMessenger(SEPOLIA_DOMAIN), evmMessenger);
+        assertEq(executor.sourceBurnToken(SEPOLIA_DOMAIN), sepoliaUsdc);
+        assertEq(executor.sourceTokenMessenger(BASE_DOMAIN), evmMessenger);
+        assertEq(executor.sourceBurnToken(BASE_DOMAIN), baseUsdc);
+        assertEq(executor.sourceTokenMessenger(ARBITRUM_DOMAIN), evmMessenger);
+        assertEq(executor.sourceBurnToken(ARBITRUM_DOMAIN), arbitrumUsdc);
+        assertEq(executor.sourceTokenMessenger(99), bytes32(0));
         assertEq(executor.localTokenMessenger(), localMessenger);
     }
 
@@ -84,14 +108,42 @@ contract HookExecutorAdminTest is Base {
         vm.assume(caller != address(this));
         vm.prank(caller);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, caller));
-        executor.setSourceConfig(bytes32(0), bytes32(0), bytes32(0));
+        executor.setSourceConfig(BASE_DOMAIN, bytes32(0), bytes32(0));
     }
 
-    function testFuzz_WhenTheCallerIsTheOwner_StoresTheNewRoute(bytes32 a, bytes32 b, bytes32 c) external {
-        executor.setSourceConfig(a, b, c);
-        assertEq(executor.sourceTokenMessenger(), a);
-        assertEq(executor.sourceBurnToken(), b);
-        assertEq(executor.localTokenMessenger(), c);
+    function testFuzz_WhenTheCallerIsTheOwner_StoresTheNewRoute(uint32 domain, bytes32 a, bytes32 b) external {
+        vm.assume(a != 0 && b != 0);
+        executor.setSourceConfig(domain, a, b);
+        assertEq(executor.sourceTokenMessenger(domain), a);
+        assertEq(executor.sourceBurnToken(domain), b);
+    }
+
+    function test_WhenTheOwnerDelistsADomain_RefusesItsMessages() external {
+        executor.setSourceConfig(BASE_DOMAIN, bytes32(0), bytes32(0));
+        Msg memory m = _from(BASE_DOMAIN, evmMessenger, baseUsdc, 1e6, _hook(alice, uint64(block.timestamp + 1)), "n");
+        bytes memory message = _encode(m);
+        bytes memory attestation = _sign(message);
+        vm.expectRevert(abi.encodeWithSelector(HookExecutor.HookExecutor__WrongSourceDomain.selector, BASE_DOMAIN));
+        executor.relay(message, attestation);
+    }
+
+    function test_RevertWhen_OnlyOneHalfOfASourceIsSet() external {
+        vm.expectRevert(abi.encodeWithSelector(HookExecutor.HookExecutor__InvalidSource.selector, BASE_DOMAIN));
+        executor.setSourceConfig(BASE_DOMAIN, evmMessenger, bytes32(0));
+        vm.expectRevert(abi.encodeWithSelector(HookExecutor.HookExecutor__InvalidSource.selector, BASE_DOMAIN));
+        executor.setSourceConfig(BASE_DOMAIN, bytes32(0), baseUsdc);
+    }
+
+    function testFuzz_RevertWhen_LocalMessengerCallerIsNotTheOwner(address caller) external {
+        vm.assume(caller != address(this));
+        vm.prank(caller);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, caller));
+        executor.setLocalTokenMessenger(bytes32(0));
+    }
+
+    function testFuzz_WhenTheCallerIsTheOwner_StoresTheLocalMessenger(bytes32 messenger) external {
+        executor.setLocalTokenMessenger(messenger);
+        assertEq(executor.localTokenMessenger(), messenger);
     }
 
     function _relayExpired(address beneficiary, uint256 amount, bytes32 nonce) internal {

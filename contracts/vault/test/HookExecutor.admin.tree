@@ -2,8 +2,10 @@ HookExecutorAdminTest
 ├── given the constructor
 │   ├── when the transmitter, the usdc or the vault is zero
 │   │   └── it should revert
+│   ├── when a source has a zero messenger or burn token, or a domain is listed twice
+│   │   └── it should revert
 │   └── when the arguments are valid
-│       └── it should store them
+│       └── it should store each source domain with its own messenger and burn token
 ├── given claim
 │   ├── when the caller has no claim
 │   │   └── it should revert
@@ -18,8 +20,17 @@ HookExecutorAdminTest
 │   │   └── it should revert
 │   └── when USDC is quarantined
 │       └── it should send it to the destination once
-└── given setSourceConfig
+├── given setSourceConfig
+│   ├── when the caller is not the owner
+│   │   └── it should revert
+│   ├── when only one half of a source is set
+│   │   └── it should revert
+│   ├── when the owner delists a domain
+│   │   └── it should refuse that domain's messages
+│   └── when the caller is the owner
+│       └── it should store the new route for that domain
+└── given setLocalTokenMessenger
     ├── when the caller is not the owner
     │   └── it should revert
     └── when the caller is the owner
-        └── it should store the new route
+        └── it should store the local messenger

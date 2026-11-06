@@ -15,6 +15,7 @@ import {MockMessageTransmitterV2} from "test/mocks/MockMessageTransmitterV2.sol"
 /// The admin is the broadcasting account; on a local chain that is acceptable.
 contract DeployLocal is Script {
     uint32 internal constant ARC_DOMAIN = 26;
+    uint32 internal constant SOLANA_DOMAIN = 5;
     uint256 internal constant DEFAULT_MOVE_CAP = 1_000_000e6;
     string internal constant OUT_FILE = "deployments/local.json";
 
@@ -35,12 +36,13 @@ contract DeployLocal is Script {
 
         vault = new ShareVault(usdc, msg.sender, msg.sender);
         receiver = new NavReceiver(vault, address(forwarder), msg.sender);
+        HookExecutor.SourceRoute[] memory sources = new HookExecutor.SourceRoute[](1);
+        sources[0] = HookExecutor.SourceRoute(SOLANA_DOMAIN, solanaTokenMessenger, solanaUsdcMint);
         executor = new HookExecutor(
             IMessageTransmitterV2(address(transmitter)),
             usdc,
             vault,
-            solanaTokenMessenger,
-            solanaUsdcMint,
+            sources,
             bytes32(uint256(uint160(tokenMessenger))),
             msg.sender
         );

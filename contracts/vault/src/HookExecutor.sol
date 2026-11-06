@@ -10,8 +10,9 @@ import {ShareVault} from "src/ShareVault.sol";
 
 /**
  * @title HookExecutor
- * @notice Receives Solana deposits through CCTP V2. The Solana burn names this contract as both
- * mint recipient and destination caller, so only this contract can deliver the message. The net
+ * @notice Receives deposits through CCTP V2 from an allow-list of source domains (Solana and EVM
+ * chains), each with its own trusted token messenger and burn token. The source burn names this
+ * contract as both mint recipient and destination caller, so only this contract can deliver the message. The net
  * minted USDC is forwarded into the vault as a deposit request, or held as a claim when the
  * deadline passed or the vault refuses it. Hook data that cannot be decoded is quarantined for the
  * owner to release, because reverting would leave the attested message undeliverable forever.
@@ -24,7 +25,12 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
                              STATE VARIABLES
     //////////////////////////////////////////////////////////////*/
 
-    uint32 public constant SOLANA_DOMAIN = 5;
+    struct SourceRoute {
+        uint32 domain;
+        bytes32 tokenMessenger;
+        bytes32 burnToken;
+    }
+
     uint32 public constant MESSAGE_VERSION = 1;
     uint8 public constant HOOK_VERSION = 1;
 
@@ -52,8 +58,8 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
     IERC20 public immutable USDC;
     ShareVault public immutable VAULT;
 
-    bytes32 public sourceTokenMessenger;
-    bytes32 public sourceBurnToken;
+    mapping(uint32 domain => bytes32 tokenMessenger) public sourceTokenMessenger;
+    mapping(uint32 domain => bytes32 burnToken) public sourceBurnToken;
     bytes32 public localTokenMessenger;
 
     mapping(bytes32 nonce => bool done) public processed;
@@ -71,7 +77,8 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
     event DepositQuarantined(bytes32 indexed nonce, uint256 amount);
     event QuarantineReleased(bytes32 indexed nonce, address indexed to, uint256 amount);
     event Claimed(address indexed beneficiary, uint256 amount);
-    event SourceConfigUpdated(bytes32 sourceTokenMessenger, bytes32 sourceBurnToken, bytes32 localTokenMessenger);
+    event SourceConfigUpdated(uint32 indexed domain, bytes32 sourceTokenMessenger, bytes32 sourceBurnToken);
+    event LocalTokenMessengerUpdated(bytes32 localTokenMessenger);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -91,6 +98,8 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
     error HookExecutor__NothingToClaim();
     error HookExecutor__NothingQuarantined();
     error HookExecutor__ZeroAddress();
+    error HookExecutor__InvalidSource(uint32 domain);
+    error HookExecutor__DuplicateSource(uint32 domain);
 
     /*//////////////////////////////////////////////////////////////
                                FUNCTIONS
@@ -100,8 +109,7 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
         IMessageTransmitterV2 transmitter_,
         IERC20 usdc_,
         ShareVault vault_,
-        bytes32 sourceTokenMessenger_,
-        bytes32 sourceBurnToken_,
+        SourceRoute[] memory sources_,
         bytes32 localTokenMessenger_,
         address owner_
     ) Ownable(owner_) {
@@ -111,9 +119,13 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
         TRANSMITTER = transmitter_;
         USDC = usdc_;
         VAULT = vault_;
-        sourceTokenMessenger = sourceTokenMessenger_;
-        sourceBurnToken = sourceBurnToken_;
         localTokenMessenger = localTokenMessenger_;
+        for (uint256 i; i < sources_.length; ++i) {
+            SourceRoute memory source = sources_[i];
+            if (source.tokenMessenger == 0) revert HookExecutor__InvalidSource(source.domain);
+            if (sourceTokenMessenger[source.domain] != 0) revert HookExecutor__DuplicateSource(source.domain);
+            _setSource(source.domain, source.tokenMessenger, source.burnToken);
+        }
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -154,19 +166,30 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
         emit QuarantineReleased(nonce, to, amount);
     }
 
-    function setSourceConfig(bytes32 sourceTokenMessenger_, bytes32 sourceBurnToken_, bytes32 localTokenMessenger_)
+    /// @notice Lists a source domain with its trusted token messenger and burn token, or replaces them.
+    /// A zero token messenger and zero burn token delist the domain.
+    function setSourceConfig(uint32 domain, bytes32 sourceTokenMessenger_, bytes32 sourceBurnToken_)
         external
         onlyOwner
     {
-        sourceTokenMessenger = sourceTokenMessenger_;
-        sourceBurnToken = sourceBurnToken_;
+        _setSource(domain, sourceTokenMessenger_, sourceBurnToken_);
+    }
+
+    function setLocalTokenMessenger(bytes32 localTokenMessenger_) external onlyOwner {
         localTokenMessenger = localTokenMessenger_;
-        emit SourceConfigUpdated(sourceTokenMessenger_, sourceBurnToken_, localTokenMessenger_);
+        emit LocalTokenMessengerUpdated(localTokenMessenger_);
     }
 
     /*//////////////////////////////////////////////////////////////
                     INTERNAL STATE-CHANGING FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+
+    function _setSource(uint32 domain, bytes32 tokenMessenger, bytes32 burnToken) internal {
+        if ((tokenMessenger == 0) != (burnToken == 0)) revert HookExecutor__InvalidSource(domain);
+        sourceTokenMessenger[domain] = tokenMessenger;
+        sourceBurnToken[domain] = burnToken;
+        emit SourceConfigUpdated(domain, tokenMessenger, burnToken);
+    }
 
     function _dispatch(bytes32 nonce, bytes calldata hookData, bytes32 burnSender, uint256 amount) internal {
         (bool valid, address beneficiary, bytes32 depositor, uint64 deadline) = _decodeHook(hookData, burnSender);
@@ -203,12 +226,13 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
             revert HookExecutor__BadVersion();
         }
         uint32 sourceDomain = _uint32(message, HEADER_SOURCE_DOMAIN);
-        if (sourceDomain != SOLANA_DOMAIN) revert HookExecutor__WrongSourceDomain(sourceDomain);
+        bytes32 trustedMessenger = sourceTokenMessenger[sourceDomain];
+        if (trustedMessenger == 0) revert HookExecutor__WrongSourceDomain(sourceDomain);
         bytes32 self = _toBytes32(address(this));
-        if (_word(message, HEADER_SENDER) != sourceTokenMessenger) revert HookExecutor__WrongSourceSender();
+        if (_word(message, HEADER_SENDER) != trustedMessenger) revert HookExecutor__WrongSourceSender();
         if (_word(message, HEADER_RECIPIENT) != localTokenMessenger) revert HookExecutor__WrongLocalMessenger();
         if (_word(message, HEADER_DESTINATION_CALLER) != self) revert HookExecutor__WrongDestinationCaller();
-        if (_word(message, BODY_BURN_TOKEN) != sourceBurnToken) revert HookExecutor__WrongBurnToken();
+        if (_word(message, BODY_BURN_TOKEN) != sourceBurnToken[sourceDomain]) revert HookExecutor__WrongBurnToken();
         if (_word(message, BODY_MINT_RECIPIENT) != self) revert HookExecutor__WrongMintRecipient();
     }
 
