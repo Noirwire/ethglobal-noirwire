@@ -1,7 +1,7 @@
 "use client";
 
 import { useLive } from "./LiveProvider";
-import { Label, NotConnected, TrustTag } from "./parts";
+import { Label, NotConnected, Stat, TrustTag } from "./parts";
 import { shortHash } from "@/lib/explorers";
 import { formatSharePrice, formatStamp, formatUsdc } from "@/lib/format";
 import type { PublicNav, PublicNavSource } from "@/lib/view-types";
@@ -88,14 +88,14 @@ export function NavView() {
           <TrustTag trust="onchain" note="Written to the NavReceiver on Arc by the Chainlink CRE workflow. The inputs carry their own labels above." />
         </div>
         <dl className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
-          <Total term="Total assets" value={`${formatUsdc(report.totalAssets)} USDC`} />
-          <Total term="Liabilities" value={`${formatUsdc(report.totalLiabilities)} USDC`} />
-          <Total
+          <Stat term="Total assets" value={`${formatUsdc(report.totalAssets)} USDC`} />
+          <Stat term="Liabilities" value={`${formatUsdc(report.totalLiabilities)} USDC`} />
+          <Stat
             term="Share price"
             value={report.sharePriceE18 === null ? "n/a" : `${formatSharePrice(report.sharePriceE18)} USD`}
             note={report.sharePriceE18 === null ? "Settlement for this close not found on the vault" : undefined}
           />
-          <Total term="Observed" value={`${formatStamp(report.observedAt)} UTC`} />
+          <Stat term="Observed" value={`${formatStamp(report.observedAt)} UTC`} />
         </dl>
         <dl className="mt-10 space-y-6">
           <div>
@@ -128,16 +128,6 @@ export function NavView() {
           value the report wrote to Arc.
         </p>
       </section>
-    </div>
-  );
-}
-
-function Total({ term, value, note }: { term: string; value: string; note?: string }) {
-  return (
-    <div>
-      <dt className="text-faint text-label uppercase tracking-[0.12em]">{term}</dt>
-      <dd className="tnum text-ink-strong mt-1 text-body">{value}</dd>
-      {note && <dd className="text-faint mt-1 text-label">{note}</dd>}
     </div>
   );
 }

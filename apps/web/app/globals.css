@@ -2,7 +2,6 @@
 
 @theme {
   --color-base: #0b0b0c;
-  --color-surface: #131315;
   --color-surface-raised: #18181b;
   --color-elevated: #1c1c1f;
 
@@ -20,9 +19,6 @@
   --color-danger: #f18d80;
 
   --font-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
-
-  --radius-panel: 12px;
-  --radius-tile: 8px;
 
   --text-display: clamp(56px, 11vw, 120px);
   --text-display--line-height: 1;
@@ -43,12 +39,6 @@ body {
   font-family: var(--font-sans);
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
-}
-
-h1,
-h2,
-h3 {
-  text-wrap: balance;
 }
 
 ::selection {

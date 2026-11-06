@@ -19,6 +19,16 @@ export function TrustTag({ trust, note }: { trust: TrustLabel; note?: string }) 
   );
 }
 
+export function Stat({ term, value, note, title }: { term: string; value: string; note?: string; title?: string }) {
+  return (
+    <div title={title}>
+      <dt className="text-faint text-label uppercase tracking-[0.12em]">{term}</dt>
+      <dd className="tnum text-ink-strong mt-1 text-body">{value}</dd>
+      {note && <dd className="text-faint mt-1 text-label">{note}</dd>}
+    </div>
+  );
+}
+
 export function Label({ children }: { children: React.ReactNode }) {
   return <p className="text-faint text-label uppercase tracking-[0.12em]">{children}</p>;
 }

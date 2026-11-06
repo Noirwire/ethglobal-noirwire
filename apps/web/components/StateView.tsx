@@ -2,10 +2,13 @@
 
 import { useLive } from "./LiveProvider";
 import { Sparkline } from "./Sparkline";
-import { Label, NotConnected, TrustTag } from "./parts";
+import { Label, NotConnected, Stat, TrustTag } from "./parts";
 import { formatBtc, formatClock } from "@/lib/format";
 import { axisRange8, deviationPercent, residualState } from "@/lib/residual";
 import type { PublicBucket } from "@/lib/privacy";
+
+const AXIS_HEADROOM_NUM = 5n;
+const AXIS_HEADROOM_DEN = 4n;
 
 interface BarSegment {
   from: bigint;
@@ -41,7 +44,8 @@ function DeviationRow({
         {detail && <span className="text-faint block text-label">{detail}</span>}
       </p>
       <div className="relative col-span-2 h-3 md:order-2 md:col-span-1" aria-hidden>
-        <div className="bg-surface-raised absolute inset-y-0 rounded-sm" style={{ left: `${50 - bandPct}%`, width: `${bandPct * 2}%` }} />
+        <div className="bg-surface-raised absolute inset-0 rounded-sm" />
+        <div className="bg-elevated absolute inset-y-0 rounded-sm" style={{ left: `${50 - bandPct}%`, width: `${bandPct * 2}%` }} />
         <div className="bg-line-strong absolute inset-y-[-4px] left-1/2 w-px" />
         {inside ? (
           <div className="bg-ink-strong absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full" />
@@ -80,9 +84,13 @@ export function StateView() {
 
   const facts = (
     <dl className="border-line-subtle grid grid-cols-1 gap-6 border-t pt-8 sm:grid-cols-3">
-      <Fact term="Band threshold" value={`±${formatBtc(state.band)} BTC`} />
-      <Fact term="Hedge latency" value={state.latencySeconds === null ? "n/a" : `${state.latencySeconds} s`} />
-      <Fact term="Hedger" value={state.status.charAt(0).toUpperCase() + state.status.slice(1)}title={state.hedgeEnabled ? undefined : "Observing only, hedge orders are switched off"} />
+      <Stat term="Band threshold" value={`±${formatBtc(state.band)} BTC`} />
+      <Stat term="Hedge latency" value={state.latencySeconds === null ? "n/a" : `${state.latencySeconds} s`} />
+      <Stat
+        term="Hedger"
+        value={state.status.charAt(0).toUpperCase() + state.status.slice(1)}
+        title={state.hedgeEnabled ? undefined : "Observing only, hedge orders are switched off"}
+      />
     </dl>
   );
 
@@ -105,7 +113,7 @@ export function StateView() {
   const residual = BigInt(current.residual);
   const hedgeNet = hl + aqua;
   const outside = residualState(residual, band8) === "outside";
-  const range = (axisRange8([maker, hedgeNet, hl, aqua, residual], band8) * 5n) / 4n;
+  const range = (axisRange8([maker, hedgeNet, hl, aqua, residual], band8) * AXIS_HEADROOM_NUM) / AXIS_HEADROOM_DEN;
 
   return (
     <div className="space-y-16 md:space-y-20">
@@ -165,15 +173,6 @@ export function StateView() {
       </section>
 
       {facts}
-    </div>
-  );
-}
-
-function Fact({ term, value, title }: { term: string; value: string; title?: string }) {
-  return (
-    <div title={title}>
-      <dt className="text-faint text-label uppercase tracking-[0.12em]">{term}</dt>
-      <dd className="tnum text-ink-strong mt-1 text-body">{value}</dd>
     </div>
   );
 }

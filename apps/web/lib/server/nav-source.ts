@@ -4,6 +4,7 @@ import { addressUrl, txUrl } from "../explorers";
 import { computeSourcesHash } from "../nav-hash";
 import { parseNavSnapshot } from "../parse";
 import type { Down, PublicNav } from "../view-types";
+import { describeError, REQUEST_TIMEOUT_MS } from "./request";
 
 const reportEvent = parseAbiItem(
   "event NavReportReceived(uint64 indexed closeId, uint64 observedAt, uint256 totalAssets, uint256 totalLiabilities, bytes32 sourcesHash)",
@@ -15,13 +16,9 @@ const receiverAbi = parseAbi(["function VAULT() view returns (address)"]);
 
 const NAME = "NAV (Arc)";
 
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message.split("\n")[0] ?? "request failed" : "request failed";
-}
-
 async function readSnapshot(url: string, report: { closeId: number; sourcesHash: string }): Promise<PublicNav["sources"]> {
   try {
-    const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(3000) });
+    const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     if (!response.ok) return { published: false, reason: `NAV snapshot source not connected (HTTP ${response.status})` };
     const parsed = parseNavSnapshot(await response.json());
     if (!parsed.ok) return { published: false, reason: `NAV snapshot source returned an invalid document: ${parsed.reason}` };
@@ -45,7 +42,7 @@ async function readSnapshot(url: string, report: { closeId: number; sourcesHash:
       })),
     };
   } catch (error) {
-    return { published: false, reason: `NAV snapshot source not connected (${describe(error)})` };
+    return { published: false, reason: `NAV snapshot source not connected (${describeError(error)})` };
   }
 }
 
@@ -54,7 +51,7 @@ export async function readNav(env: WebEnv): Promise<({ ok: true; report: PublicN
     return { ok: false, source: NAME, reason: "NAV_RECEIVER_ADDRESS is not set" };
   }
   const receiver = env.navReceiverAddress as `0x${string}`;
-  const client = createPublicClient({ transport: http(env.arcRpcUrl, { timeout: 3000, retryCount: 0 }) });
+  const client = createPublicClient({ transport: http(env.arcRpcUrl, { timeout: REQUEST_TIMEOUT_MS, retryCount: 0 }) });
   try {
     const logs = await client.getLogs({ address: receiver, event: reportEvent, fromBlock: env.navFromBlock, toBlock: "latest" });
     const latest = logs.at(-1);
@@ -100,6 +97,6 @@ export async function readNav(env: WebEnv): Promise<({ ok: true; report: PublicN
       },
     };
   } catch (error) {
-    return { ok: false, source: NAME, reason: `Arc RPC not connected (${describe(error)})` };
+    return { ok: false, source: NAME, reason: `Arc RPC not connected (${describeError(error)})` };
   }
 }

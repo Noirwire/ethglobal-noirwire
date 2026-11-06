@@ -6,6 +6,11 @@ import { railFor } from "../transfers";
 import type { Down, PublicTransfer, PublicView } from "../view-types";
 import { feedFor } from "./hedger-feed";
 import { readNav } from "./nav-source";
+import { describeError, REQUEST_TIMEOUT_MS } from "./request";
+
+const HEDGER_TTL_MS = 1000;
+const BRIDGE_TTL_MS = 2000;
+const NAV_TTL_MS = 10_000;
 
 const cache = new Map<string, { at: number; value: Promise<unknown> }>();
 
@@ -17,17 +22,13 @@ function cached<T>(key: string, ttlMs: number, load: () => Promise<T>): Promise<
   return value;
 }
 
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message.split("\n")[0] ?? "request failed" : "request failed";
-}
-
 async function getJson(url: string): Promise<{ ok: true; body: unknown } | { ok: false; reason: string }> {
   try {
-    const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(3000) });
+    const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     if (!response.ok) return { ok: false, reason: `HTTP ${response.status}` };
     return { ok: true, body: await response.json() };
   } catch (error) {
-    return { ok: false, reason: describe(error) };
+    return { ok: false, reason: describeError(error) };
   }
 }
 
@@ -79,9 +80,9 @@ async function bridgeSection(): Promise<PublicView["bridge"]> {
 
 export async function buildPublicView(): Promise<PublicView> {
   const [hedger, bridge, nav] = await Promise.all([
-    cached("hedger", 1000, hedgerSection),
-    cached("bridge", 2000, bridgeSection),
-    cached("nav", 10_000, () => readNav(loadEnv())),
+    cached("hedger", HEDGER_TTL_MS, hedgerSection),
+    cached("bridge", BRIDGE_TTL_MS, bridgeSection),
+    cached("nav", NAV_TTL_MS,() => readNav(loadEnv())),
   ]);
   return {
     privacy: { bucketSeconds: BUCKET_MS / 1000, roundBtc: "0.01", delaySeconds: PUBLISH_DELAY_MS / 1000 },
