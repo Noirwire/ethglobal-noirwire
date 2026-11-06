@@ -19,11 +19,28 @@ export function TrustTag({ trust, note }: { trust: TrustLabel; note?: string }) 
   );
 }
 
-export function Stat({ term, value, note, title }: { term: string; value: string; note?: string; title?: string }) {
+export function Stat({
+  term,
+  value,
+  note,
+  title,
+  trust,
+}: {
+  term: string;
+  value: string;
+  note?: string;
+  title?: string;
+  trust?: { label: TrustLabel; note: string };
+}) {
   return (
     <div title={title}>
       <dt className="text-faint text-label uppercase tracking-[0.12em]">{term}</dt>
       <dd className="tnum text-ink-strong mt-1 text-body">{value}</dd>
+      {trust && (
+        <dd className="mt-1">
+          <TrustTag trust={trust.label} note={trust.note} />
+        </dd>
+      )}
       {note && <dd className="text-faint mt-1 text-label">{note}</dd>}
     </div>
   );

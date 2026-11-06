@@ -1,5 +1,7 @@
 import type { BridgeTransfer, TransferRoute, TransferState } from "@noirwire/shared";
 import { txUrl, type Chain } from "./explorers";
+import { PUBLISH_DELAY_MS } from "./privacy";
+import type { PublicTransfer } from "./view-types";
 
 export type Stage = "burned" | "attested" | "minted" | "credited";
 
@@ -71,6 +73,17 @@ function hashFor(transfer: BridgeTransfer, stage: Stage): { hash: string | null;
   }
 }
 
+const MINUTE_MS = 60_000;
+
+export function floorToMinute(iso: string): string {
+  return new Date(Math.floor(Date.parse(iso) / MINUTE_MS) * MINUTE_MS).toISOString();
+}
+
+function errorLabel(transfer: BridgeTransfer, reached: number): string {
+  if (transfer.state === "stuck") return reached <= 2 && !transfer.attestation ? "waiting for attestation" : "stalled";
+  return /refund/i.test(transfer.error ?? "") ? "refunded" : "failed";
+}
+
 export function railFor(transfer: BridgeTransfer): Rail {
   const reached = reachedStages(transfer);
   const local = transfer.attester === "local-test-attester";
@@ -83,14 +96,31 @@ export function railFor(transfer: BridgeTransfer): Rail {
       stalled: transfer.state === "stuck" && index === reached,
       hash: isReached || hash ? hash : null,
       href: hash && chain && !local ? txUrl(chain, hash) : null,
-      at: isReached && index === reached - 1 ? transfer.updatedAt : null,
+      at: isReached && index === reached - 1 ? floorToMinute(transfer.updatedAt) : null,
     };
   });
   const terminal =
     transfer.state === "failed" || transfer.state === "stuck"
-      ? { kind: transfer.state, error: transfer.error ?? null }
+      ? { kind: transfer.state, error: errorLabel(transfer, reached) }
       : null;
   return { nodes, terminal };
+}
+
+export function publicTransfers(transfers: BridgeTransfer[], nowMs: number): PublicTransfer[] {
+  return transfers
+    .filter((transfer) => Date.parse(transfer.updatedAt) <= nowMs - PUBLISH_DELAY_MS)
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+    .map((transfer) => ({
+      id: transfer.transferId,
+      route: transfer.route,
+      state: transfer.state,
+      gross: transfer.grossAmount,
+      netMinted: transfer.netMinted ?? null,
+      fee: transfer.feeExecuted ?? null,
+      attester: transfer.attester,
+      updatedAt: floorToMinute(transfer.updatedAt),
+      rail: railFor(transfer),
+    }));
 }
 
 export const ATTESTER_LABEL: Record<BridgeTransfer["attester"], string> = {

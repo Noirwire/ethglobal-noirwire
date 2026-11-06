@@ -19,9 +19,15 @@ const NAME = "NAV (Arc)";
 async function readSnapshot(url: string, report: { closeId: number; sourcesHash: string }): Promise<PublicNav["sources"]> {
   try {
     const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-    if (!response.ok) return { published: false, reason: `NAV snapshot source not connected (HTTP ${response.status})` };
+    if (!response.ok) {
+      console.error(`NAV snapshot: HTTP ${response.status}`);
+      return { published: false, reason: "NAV snapshot source not connected" };
+    }
     const parsed = parseNavSnapshot(await response.json());
-    if (!parsed.ok) return { published: false, reason: `NAV snapshot source returned an invalid document: ${parsed.reason}` };
+    if (!parsed.ok) {
+      console.error(`NAV snapshot: invalid document (${parsed.reason})`);
+      return { published: false, reason: "NAV snapshot source returned an invalid document" };
+    }
     const snapshot = parsed.data;
     if (snapshot.closeId !== report.closeId) {
       return { published: false, reason: `Published snapshot is for close ${snapshot.closeId}, the latest onchain report is close ${report.closeId}` };
@@ -42,13 +48,14 @@ async function readSnapshot(url: string, report: { closeId: number; sourcesHash:
       })),
     };
   } catch (error) {
-    return { published: false, reason: `NAV snapshot source not connected (${describeError(error)})` };
+    console.error(`NAV snapshot unreachable (${describeError(error)})`);
+    return { published: false, reason: "NAV snapshot source not connected" };
   }
 }
 
 export async function readNav(env: WebEnv): Promise<({ ok: true; report: PublicNav }) | Down> {
   if (!env.navReceiverAddress) {
-    return { ok: false, source: NAME, reason: "NAV_RECEIVER_ADDRESS is not set" };
+    return { ok: false, source: NAME, reason: "not configured" };
   }
   const receiver = env.navReceiverAddress as `0x${string}`;
   const client = createPublicClient({ transport: http(env.arcRpcUrl, { timeout: REQUEST_TIMEOUT_MS, retryCount: 0 }) });
@@ -80,7 +87,7 @@ export async function readNav(env: WebEnv): Promise<({ ok: true; report: PublicN
     const base = { closeId: Number(closeId), sourcesHash };
     const sources: PublicNav["sources"] = env.navSnapshotUrl
       ? await readSnapshot(env.navSnapshotUrl, base)
-      : { published: false, reason: "The per-source breakdown is not published (NAV_SNAPSHOT_URL is not set)" };
+      : { published: false, reason: "The per-source breakdown is not published" };
     const reportTx = latest.transactionHash;
     return {
       ok: true,
@@ -97,6 +104,7 @@ export async function readNav(env: WebEnv): Promise<({ ok: true; report: PublicN
       },
     };
   } catch (error) {
-    return { ok: false, source: NAME, reason: `Arc RPC not connected (${describeError(error)})` };
+    console.error(`Arc RPC unreachable (${describeError(error)})`);
+    return { ok: false, source: NAME, reason: "no response from the service" };
   }
 }

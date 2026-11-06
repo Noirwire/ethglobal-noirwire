@@ -79,7 +79,7 @@ describe("transfer rail", () => {
     if (!parsed.ok) throw new Error("fixture invalid");
     const rail = railFor(parsed.data[0]!);
     expect(rail.nodes[0]?.href).toContain("/tx/0xabc");
-    expect(rail.terminal).toEqual({ kind: "failed", error: "boom" });
+    expect(rail.terminal).toEqual({ kind: "failed", error: "failed" });
   });
 });
 

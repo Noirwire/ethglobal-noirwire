@@ -1,4 +1,4 @@
-import { formatClock } from "@/lib/format";
+import { formatClock, formatMinute } from "@/lib/format";
 import { shortHash } from "@/lib/explorers";
 import { STAGE_LABEL, type RailNode } from "@/lib/transfers";
 import type { PublicTransfer } from "@/lib/view-types";
@@ -11,6 +11,7 @@ export interface NodeView {
   hash: string | null;
   href: string | null;
   at: string | null;
+  minute?: boolean;
   note?: string;
 }
 
@@ -36,7 +37,7 @@ function Node({ node }: { node: NodeView }) {
         ))}
       {node.at && (
         <time className="tnum text-faint block text-label" dateTime={node.at} title={node.at}>
-          {formatClock(node.at)}
+          {node.minute ? formatMinute(node.at) : formatClock(node.at)}
         </time>
       )}
       {node.note && <span className="text-faint block text-label">{node.note}</span>}
@@ -69,6 +70,7 @@ export function transferNodes(transfer: PublicTransfer): NodeView[] {
         hash: node.hash,
         href: node.href,
         at: transfer.updatedAt,
+        minute: true,
         note: transfer.rail.terminal?.error ?? undefined,
       };
     }
@@ -80,6 +82,7 @@ export function transferNodes(transfer: PublicTransfer): NodeView[] {
       hash: node.hash,
       href: node.href,
       at: node.at,
+      minute: true,
       note: node.stalled ? "stalled" : undefined,
     };
   });

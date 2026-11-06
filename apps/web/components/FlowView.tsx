@@ -103,7 +103,7 @@ export function FlowView() {
           ) : (
             <ul>
               {view.bridge.transfers.map((transfer) => (
-                <TransferRow key={transfer.id} transfer={transfer} />
+                <TransferRow key={transfer.id}transfer={transfer} />
               ))}
             </ul>
           )}

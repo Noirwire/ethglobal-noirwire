@@ -20,12 +20,15 @@ const STATUS_DOT: Record<HedgerStatus, string> = {
 };
 
 function StatusChip() {
-  const { view, streaming } = useLive();
+  const { view, streaming, stale } = useLive();
   let label = "Not connected";
   let dot = "bg-faint";
   let live = false;
   if (!streaming) {
     label = "Reconnecting";
+  } else if (stale) {
+    label = "Stale";
+    dot = "bg-warning";
   } else if (view.hedger.ok) {
     label = view.hedger.state.status;
     dot = STATUS_DOT[view.hedger.state.status];
@@ -60,8 +63,9 @@ function PrivacyChip() {
         className="tip bg-elevated border-line text-dim absolute left-0 top-full z-10 mt-2 w-[min(22rem,calc(100vw-2.5rem))] rounded-lg border p-3 text-label"
       >
         Fills and hedges are grouped into {bucketSeconds} second buckets. Sizes are rounded to {roundBtc} BTC, hedges are
-        netted per bucket, and a bucket is published only once it is {delaySeconds} seconds old. Individual fills, exact
-        sizes and exact times never leave the server, so the public view cannot be used to trade against the maker.
+        netted per bucket, and a bucket is published only once it is {delaySeconds} seconds old. Bridge transfers are
+        shown to the minute and only once they are {delaySeconds} seconds old. Individual fills, exact sizes and exact
+        times never leave the server, so the public view cannot be used to trade against the maker.
       </span>
     </span>
   );

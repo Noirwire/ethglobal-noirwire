@@ -85,7 +85,11 @@ export function StateView() {
   const facts = (
     <dl className="border-line-subtle grid grid-cols-1 gap-6 border-t pt-8 sm:grid-cols-3">
       <Stat term="Band threshold" value={`±${formatBtc(state.band)} BTC`} />
-      <Stat term="Hedge latency" value={state.latencySeconds === null ? "n/a" : `${state.latencySeconds} s`} />
+      <Stat
+        term="Hedge latency"
+        value={state.latencySeconds === null ? "n/a" : `${state.latencySeconds} s`}
+        trust={{ label: "venue-api", note: "Median fill-to-hedge time from published buckets, reported by the hedger, in whole seconds" }}
+      />
       <Stat
         term="Hedger"
         value={state.status.charAt(0).toUpperCase() + state.status.slice(1)}

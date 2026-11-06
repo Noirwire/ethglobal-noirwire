@@ -140,6 +140,15 @@ describe("aggregation", () => {
     expect(aggregate([], NOW).latencySeconds).toBeNull();
   });
 
+  it("computes latency only from publishable orders, in whole seconds", () => {
+    const old = Date.parse("2026-11-06T12:00:03.000Z");
+    const base = [fill("f1", "buy", "3333333", old), hl("c1", "sell", "3333333", "filled", old + 2400, ["f1"])];
+    const recent = [fill("f9", "buy", "9000000", NOW - 9000), hl("c9", "sell", "9000000", "filled", NOW - 1000, ["f9"])];
+    const latency = aggregate([...base, ...recent], NOW).latencySeconds;
+    expect(latency).toBe(2);
+    expect(Number.isInteger(latency)).toBe(true);
+  });
+
   it("publishes nothing from a bucket that is still inside the delay", () => {
     const recent = [fill("f9", "buy", "9000000", NOW - 5000), hl("c9", "sell", "9000000", "filled", NOW - 4000, ["f9"])];
     const { buckets } = aggregate(recent, NOW);

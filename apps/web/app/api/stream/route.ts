@@ -1,3 +1,4 @@
+import { frameFor } from "@/lib/server/sse";
 import { buildPublicView } from "@/lib/server/view";
 
 export const dynamic = "force-dynamic";
@@ -17,14 +18,12 @@ export async function GET(request: Request): Promise<Response> {
         busy = true;
         try {
           const body = JSON.stringify(await buildPublicView());
-          if (body !== last) {
-            last = body;
-            controller.enqueue(encoder.encode(`data: ${body}\n\n`));
-          } else {
-            controller.enqueue(encoder.encode(": ping\n\n"));
-          }
-        } catch {
-          controller.enqueue(encoder.encode(": error\n\n"));
+          controller.enqueue(encoder.encode(frameFor(body, last)));
+          last = body;
+        } catch (error) {
+          console.error("buildPublicView failed", error);
+          controller.enqueue(encoder.encode(frameFor(null, last)));
+          last = "";
         } finally {
           busy = false;
         }
