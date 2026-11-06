@@ -1,0 +1,26 @@
+{
+  "name": "@noirwire/aqua-taker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "tsx src/cli.ts",
+    "demo": "tsx src/cli.ts demo"
+  },
+  "dependencies": {
+    "@1inch/aqua-sdk": "0.4.0",
+    "@1inch/swap-vm-sdk": "0.5.0",
+    "@noirwire/shared": "workspace:*",
+    "viem": "^2.48.4",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "26.4.1",
+    "tsx": "^4.20.0",
+    "typescript": "7.0.2",
+    "vitest": "^4.0.8"
+  }
+}
