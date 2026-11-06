@@ -1,0 +1,28 @@
+{
+  "messages": [
+    {
+      "message": "0x00000001000000050000001a",
+      "eventNonce": "9682",
+      "attestation": "0x6edd90f4a0ad02126edd90f4a0ad02126edd90f4a0ad02126edd90f4a0ad02126edd90f4a0ad02126edd90f4a0ad02126edd90f4a0ad02126edd90f4a0ad02121b",
+      "decodedMessage": {
+        "sourceDomain": "5",
+        "destinationDomain": "26",
+        "nonce": "0x00000000000000000000000000000000000000000000000000000000000025d2",
+        "sender": "0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350",
+        "recipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
+        "destinationCaller": "0xf2Edb1Ad445C6abb1260049AcDDCA9E84D7D8aaA",
+        "messageBody": "0x00000001",
+        "decodedMessageBody": {
+          "burnToken": "0x4Bc078D75390C0f5CCc3e7f59Ae2159557C5eb85",
+          "mintRecipient": "0xf2Edb1Ad445C6abb1260049AcDDCA9E84D7D8aaA",
+          "amount": "5000000",
+          "messageSender": "0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350",
+          "hookData": "0x01"
+        }
+      },
+      "cctpVersion": 2,
+      "status": "complete",
+      "delayReason": null
+    }
+  ]
+}
