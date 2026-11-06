@@ -73,6 +73,10 @@ body {
   }
 }
 
+dialog::backdrop {
+  background-color: rgb(0 0 0 / 0.65);
+}
+
 .tnum {
   font-variant-numeric: tabular-nums;
 }

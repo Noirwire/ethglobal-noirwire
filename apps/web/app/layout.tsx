@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Figtree } from "next/font/google";
+import { DepositProvider } from "@/components/deposit/DepositProvider";
 import { Header } from "@/components/Header";
 import { LiveProvider } from "@/components/LiveProvider";
 import { buildPublicView } from "@/lib/server/view";
@@ -28,8 +29,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en" className={`${figtree.variable} h-full antialiased`}>
       <body className="bg-base text-ink min-h-full">
         <LiveProvider initial={initial}>
-          <Header />
-          <main className="mx-auto w-full max-w-[1100px] px-5 pb-24 pt-10 md:px-8 md:pt-16">{children}</main>
+          <DepositProvider>
+            <Header />
+            <main className="mx-auto w-full max-w-[1100px] px-5 pb-24 pt-10 md:px-8 md:pt-16">{children}</main>
+          </DepositProvider>
         </LiveProvider>
       </body>
     </html>

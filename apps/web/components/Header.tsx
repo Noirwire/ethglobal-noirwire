@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useDeposit } from "./deposit/DepositProvider";
 import { useLive } from "./LiveProvider";
 import type { HedgerStatus } from "@/lib/residual";
 
@@ -92,6 +93,7 @@ export function Header() {
 }
 
 function NavLinks({ pathname }: { pathname: string }) {
+  const { open } = useDeposit();
   return (
     <>
       {LINKS.map((link) => {
@@ -107,10 +109,9 @@ function NavLinks({ pathname }: { pathname: string }) {
           </Link>
         );
       })}
-      <span className="text-faint text-body inline-flex items-center gap-2" aria-disabled="true">
+      <button type="button" onClick={open} className="text-dim hover:text-ink-strong text-body">
         Deposit
-        <span className="border-line text-faint rounded-full border px-2 text-label">soon</span>
-      </span>
+      </button>
     </>
   );
 }
