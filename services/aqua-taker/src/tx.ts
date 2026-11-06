@@ -6,6 +6,7 @@ import {
   decodeErrorResult,
   encodeFunctionData,
   isHex,
+  type Log,
   maxUint256,
 } from "viem";
 import { erc20Abi, hedgeGuardAbi } from "./abis.js";
@@ -20,6 +21,13 @@ export interface SentTx {
   hash: Hex;
   status: "success" | "reverted";
   gasUsed: bigint;
+  logs: readonly Log[];
+}
+
+export class TxRevertedError extends Error {
+  constructor(readonly hash: Hex) {
+    super(`transaction ${hash} reverted`);
+  }
 }
 
 export interface GuardRevert {
@@ -31,12 +39,13 @@ export async function sendCall(
   clients: ForkClients,
   role: ForkRole,
   call: EncodedCall,
-  options: { gas?: bigint } = {},
+  options: { gas?: bigint; allowRevert?: boolean } = {},
 ): Promise<SentTx> {
   const wallet = clients.wallet(role);
   const hash = await wallet.sendTransaction({ to: call.to, data: call.data, value: call.value, gas: options.gas });
   const receipt = await clients.publicClient.waitForTransactionReceipt({ hash });
-  return { hash, status: receipt.status, gasUsed: receipt.gasUsed };
+  if (receipt.status !== "success" && options.allowRevert !== true) throw new TxRevertedError(hash);
+  return { hash, status: receipt.status, gasUsed: receipt.gasUsed, logs: receipt.logs };
 }
 
 export async function approveMax(

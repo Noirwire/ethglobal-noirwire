@@ -1,6 +1,6 @@
 import { BTC_DECIMALS, type FlowEvent, USDC_DECIMALS, fromBaseUnits } from "@noirwire/shared";
 import type { Hex } from "viem";
-import { Direction, ONE_BTC, PRICE_DECIMALS, impliedPriceE8 } from "./band.js";
+import { Direction, ONE_BTC, PRICE_DECIMALS } from "./band.js";
 import type { ForkClients } from "./chain.js";
 import { type Config } from "./config.js";
 import { aquaHedgeEvent, emitEvent } from "./events.js";
@@ -200,7 +200,7 @@ export async function runDemo(
       txHash: dock.hash,
       status: "cancelled",
       filledSize8: allowed.kind === "filled" ? allowed.btc8 : 0n,
-      avgPriceE8: allowed.kind === "filled" ? impliedPriceE8(allowed.quote.amountIn, allowed.quote.amountOut) : undefined,
+      avgPriceE8: allowed.kind === "filled" ? allowed.priceE8 : undefined,
       updatedAt: new Date(),
     }),
   );

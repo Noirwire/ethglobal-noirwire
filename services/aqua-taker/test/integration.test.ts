@@ -135,9 +135,24 @@ describe.skipIf(forkRpc === undefined)("aqua fork integration", () => {
       },
       () => undefined,
     );
-    expect(result.fills).toBe(3);
-    expect(result.stoppedBecause).toBe("exhausted");
-    expect(result.filled8).toBeLessThanOrEqual(350_000n);
+    const remaining = (await new AquaTaker(clients, deployment).readTarget(maker.address)).remaining;
+    expect(result.fills).toBeGreaterThanOrEqual(4);
+    expect(result.filled8 + remaining).toBe(350_000n);
+    expect(remaining).toBeLessThan(100n);
+  });
+
+  it("keeps the reduced remaining when the hedger retries the same target id", async () => {
+    const { maker, taker } = await bootstrap();
+    const shipped = await maker.ship({ wbtcInventory8: BTC, salt: 41n });
+    const request = { direction: Direction.MakerSellsBtc, size8: BTC / 10n, ttlSeconds: 3600n } as const;
+    const first = await maker.setTarget(request);
+    expect((await taker.swapAllowedDirection(shipped.order, maker.address, BTC / 100n)).kind).toBe("filled");
+    const afterFill = (await taker.readTarget(maker.address)).remaining;
+
+    const retry = await maker.setTarget({ ...request, targetId: first.targetId });
+    expect(retry.target.remaining).toBe(afterFill);
+    expect((await taker.readTarget(maker.address)).remaining).toBe(afterFill);
+    await expect(maker.setTarget({ ...request, size8: BTC / 5n, targetId: first.targetId })).rejects.toThrow();
   });
 
   it("enforces an optional taker gate token that the setup can satisfy on the fork", async () => {

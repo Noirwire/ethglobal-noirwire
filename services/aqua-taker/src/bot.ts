@@ -45,10 +45,11 @@ export async function runTakerBot(
     const now = (await clients.publicClient.getBlock()).timestamp;
     if (target.direction === Direction.None) return { fills, filled8, stoppedBecause: "no-target" };
     if (now > target.expiry) return { fills, filled8, stoppedBecause: "expired" };
-    if (target.remaining < params.chunk8) return { fills, filled8, stoppedBecause: "exhausted" };
+    if (target.remaining === 0n) return { fills, filled8, stoppedBecause: "exhausted" };
 
     openingSize8 ??= target.remaining;
-    const outcome = await taker.swapAllowedDirection(params.order, params.maker, params.chunk8);
+    const fillSize8 = target.remaining < params.chunk8 ? target.remaining : params.chunk8;
+    const outcome = await taker.swapAllowedDirection(params.order, params.maker, fillSize8);
     if (outcome.kind === "rejected") {
       log(`bot fill rejected: ${outcome.revert?.name ?? outcome.message}`);
       return { fills, filled8, stoppedBecause: "rejected" };
@@ -67,7 +68,7 @@ export async function runTakerBot(
         makerSellsBtc: target.direction === Direction.MakerSellsBtc,
         size8: openingSize8,
         limitPriceE8: target.direction === Direction.MakerSellsBtc ? target.minPriceE8 : target.maxPriceE8,
-        status: target.remaining - outcome.btc8 < params.chunk8 ? "filled" : "partial",
+        status: outcome.remaining8 === 0n ? "filled" : "partial",
         filledSize8: filled8,
         avgPriceE8: outcome.priceE8,
         createdAt,

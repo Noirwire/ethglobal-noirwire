@@ -1,12 +1,11 @@
 import type { Order } from "@1inch/swap-vm-sdk";
-import { type Address, type Hex, decodeFunctionResult, parseAbi } from "viem";
+import { type Address, type Hex, decodeEventLog, decodeFunctionResult, parseAbi } from "viem";
 import { hedgeGuardAbi } from "./abis.js";
 import {
   Direction,
   type DirectionCode,
   type HedgeTarget,
   allowedTokens,
-  impliedPriceE8,
   sameAddress,
   toDirectionCode,
   usdcForBtc,
@@ -29,7 +28,7 @@ export interface Quote {
 }
 
 export type SwapOutcome =
-  | { kind: "filled"; tx: SentTx; quote: Quote; priceE8: bigint; btc8: bigint }
+  | { kind: "filled"; tx: SentTx; quote: Quote; priceE8: bigint; btc8: bigint; remaining8: bigint }
   | { kind: "rejected"; tx: SentTx | undefined; revert: GuardRevert | undefined; message: string };
 
 export class AquaTaker {
@@ -86,20 +85,32 @@ export class AquaTaker {
     const quoted = await this.quote(order, tokenIn, tokenOut, amountIn);
     if (!quoted.ok) {
       const call = this.swapCall(order, tokenIn, tokenOut, amountIn, 0n);
-      const tx = await sendCall(this.clients, "taker", call, { gas: REVERTING_TX_GAS });
+      const tx = await sendCall(this.clients, "taker", call, { gas: REVERTING_TX_GAS, allowRevert: true });
       return { kind: "rejected", tx, revert: quoted.revert, message: quoted.message };
     }
     const minOut = slippageFloor(quoted.quote.amountOut, SLIPPAGE_BPS);
     const tx = await sendCall(this.clients, "taker", this.swapCall(order, tokenIn, tokenOut, amountIn, minOut), {
       gas: REVERTING_TX_GAS,
+      allowRevert: true,
     });
     if (tx.status === "reverted") {
       return { kind: "rejected", tx, revert: undefined, message: "swap transaction reverted after a passing quote" };
     }
-    const sells = sameAddress(tokenOut, this.deployment.wbtc);
-    const btc8 = sells ? quoted.quote.amountOut : quoted.quote.amountIn;
-    const usdc6 = sells ? quoted.quote.amountIn : quoted.quote.amountOut;
-    return { kind: "filled", tx, quote: quoted.quote, btc8, priceE8: impliedPriceE8(usdc6, btc8) };
+    const fill = this.decodeFill(tx);
+    return { kind: "filled", tx, quote: quoted.quote, btc8: fill.btcAmount, priceE8: fill.priceE8, remaining8: fill.remaining };
+  }
+
+  private decodeFill(tx: SentTx): { btcAmount: bigint; priceE8: bigint; remaining: bigint } {
+    for (const log of tx.logs) {
+      if (!sameAddress(log.address, this.deployment.hedgeGuard)) continue;
+      try {
+        const decoded = decodeEventLog({ abi: hedgeGuardAbi, data: log.data, topics: log.topics as [Hex, ...Hex[]] });
+        if (decoded.eventName === "HedgeFilled") return decoded.args;
+      } catch {
+        continue;
+      }
+    }
+    throw new Error(`swap ${tx.hash} succeeded without a HedgeFilled event`);
   }
 
   async swapAllowedDirection(order: Order, maker: Address, btc8: bigint): Promise<SwapOutcome> {
