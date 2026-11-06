@@ -2,6 +2,7 @@ import { LOCAL_NETWORKS, type TransferRoute } from "@noirwire/shared";
 import { TreasuryExecutor, type ExecutorConfig, type RouteAdapter } from "./executor.ts";
 import { IrisClient, type Attester } from "./iris.ts";
 import { DEFAULT_DEV_DEPOSIT, setupLocalArc } from "./local-arc.ts";
+import { DurableCursor, OnchainIntentWatcher, ViemIntentLogReader, watcherSettings } from "./intent-watcher.ts";
 import { createBridgeServer, DEFAULT_BRIDGE_PORT, IntentFileWatcher, resolveApiToken, type DevDeposit } from "./server.ts";
 import { UnavailableDeposits, type SolanaDepositApi } from "./solana-deposit.ts";
 import { wireTestnet } from "./testnet.ts";
@@ -38,6 +39,7 @@ let attester: Attester;
 let devDeposit: DevDeposit | undefined;
 let executor: TreasuryExecutor;
 let buildSolanaDeposits: ((executor: TreasuryExecutor) => SolanaDepositApi) | undefined;
+let intentWatcher: { build: (executor: TreasuryExecutor) => OnchainIntentWatcher; pollMs: number } | undefined;
 const LOCAL_DEPOSIT_REASON = "The bridge runs on a local chain, so there is no Solana burn to sign. Use the local simulation instead.";
 
 if (network === "local") {
@@ -49,7 +51,24 @@ if (network === "local") {
   attester = arc.attester;
   adapters["solana-arc"] = arc.adapter;
   config.routes["solana-arc"] = arc.route;
-  config.allowlist = new Set([...config.allowlist, arc.hookExecutor.toLowerCase()]);
+  adapters["arc-hypercore"] = arc.hypercore.adapter;
+  config.routes["arc-hypercore"] = arc.hypercore.route;
+  config.vault = arc.vault;
+  config.allowlist = new Set([...config.allowlist, arc.hookExecutor.toLowerCase(), arc.hypercore.route.destination.toLowerCase()]);
+  const navReceiver = arc.addresses.navReceiver;
+  if (navReceiver) {
+    const settings = watcherSettings(env);
+    intentWatcher = {
+      pollMs: settings.pollMs,
+      build: (executor) =>
+        new OnchainIntentWatcher(
+          new ViemIntentLogReader(arc.publicClient, navReceiver),
+          new DurableCursor(settings.cursorFile),
+          executor,
+          settings.options,
+        ),
+    };
+  }
   devDeposit = (amount) => {
     const transfers = executor.submit(arc.depositIntent(amount ?? DEFAULT_DEV_DEPOSIT));
     for (const transfer of transfers) void executor.advance(transfer.transferId);
@@ -59,7 +78,9 @@ if (network === "local") {
 } else {
   const iris = new IrisClient(env("IRIS_URL"));
   attester = iris;
-  buildSolanaDeposits = wireTestnet(env, iris, adapters, config).solanaDeposits;
+  const wired = wireTestnet(env, iris, adapters, config);
+  buildSolanaDeposits = wired.solanaDeposits;
+  intentWatcher = wired.intentWatcher;
 }
 
 executor = new TreasuryExecutor(store, attester, adapters, config);
@@ -81,3 +102,21 @@ setInterval(() => {
   watcher?.poll();
   void executor.tick();
 }, TICK_INTERVAL_MS);
+
+if (intentWatcher) {
+  const onchain = intentWatcher.build(executor);
+  const pollOnchain = () => {
+    onchain
+      .poll()
+      .then((result) => {
+        if (result.submitted + result.refused + result.malformed > 0) {
+          console.log(`onchain intents: ${result.submitted} submitted, ${result.refused} refused, ${result.malformed} malformed`);
+          void executor.tick();
+        }
+      })
+      .catch((error) => console.error("onchain intent poll failed:", error instanceof Error ? error.message : error));
+  };
+  pollOnchain();
+  setInterval(pollOnchain, intentWatcher.pollMs);
+  console.log(`watching NavReceiver for top-up intents every ${intentWatcher.pollMs} ms`);
+}

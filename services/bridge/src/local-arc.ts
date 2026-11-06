@@ -5,18 +5,21 @@ import {
   createPublicClient,
   createWalletClient,
   defineChain,
+  erc20Abi,
   http,
   keccak256,
   parseAbi,
   toHex,
   type Abi,
   type Hex,
+  type PublicClient,
 } from "viem";
 import { generatePrivateKey } from "viem/accounts";
 import type { DeliverResult, RouteAdapter, RoutePolicy } from "./executor.ts";
 import { EvmDriver, hookExecutorAbi } from "./evm.ts";
 import { encodeVaultHookData, VAULT_HOOK_DEADLINE_SECONDS } from "./hooks.ts";
 import { LocalAttester } from "./iris.ts";
+import { ViemVaultChain, VaultTreasury } from "./vault.ts";
 import {
   addressToBytes32,
   BURN_BODY_VERSION,
@@ -47,10 +50,12 @@ function artifact(file: string, name: string): Artifact {
   return JSON.parse(readFileSync(path, "utf8")) as Artifact;
 }
 
-type LocalDeployment = {
+export type LocalDeployment = {
   chainId: number;
   usdc: Hex;
   shareVault?: Hex;
+  navReceiver?: Hex;
+  creForwarder?: Hex;
   hookExecutor?: Hex;
   messageTransmitterV2?: Hex;
 };
@@ -62,10 +67,16 @@ function readLocalDeployment(): LocalDeployment | undefined {
     chainId: parsed.chainId,
     usdc: parsed.usdc as Hex,
     shareVault: parsed.shareVault as Hex | undefined,
+    navReceiver: parsed.navReceiver as Hex | undefined,
+    creForwarder: parsed.creForwarder as Hex | undefined,
     hookExecutor: parsed.hookExecutor as Hex | undefined,
     messageTransmitterV2: parsed.messageTransmitterV2 as Hex | undefined,
   };
 }
+
+export const LOCAL_HYPERCORE_SINK: Hex = "0x00000000000000000000000000000000c0ffee19";
+const LOCAL_MOVE_CAP = 1_000_000_000_000n;
+const LOCAL_POLL_MS = 100;
 
 export async function localChainReachable(rpcUrl: string): Promise<boolean> {
   try {
@@ -112,13 +123,52 @@ class LocalSolanaArcAdapter implements RouteAdapter {
   }
 }
 
+class LocalHypercoreAdapter implements RouteAdapter {
+  constructor(
+    private readonly evm: EvmDriver,
+    private readonly buildMessage: (amount: bigint, nonce: Hex) => Hex,
+    private readonly stepDelayMs = 0,
+  ) {}
+
+  async burn(transfer: BridgeTransfer): Promise<{ burnTx: string }> {
+    const hash = await this.evm.walletClient.writeContract({
+      address: this.evm.addresses.usdc,
+      abi: erc20Abi,
+      functionName: "transfer",
+      args: [LOCAL_HYPERCORE_SINK, BigInt(transfer.grossAmount)],
+    });
+    const receipt = await this.evm.publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== "success") throw new Error(`local burn ${hash} reverted`);
+    return { burnTx: hash };
+  }
+
+  async messageFor(transfer: BridgeTransfer): Promise<Hex | undefined> {
+    await sleep(this.stepDelayMs);
+    return this.buildMessage(BigInt(transfer.grossAmount), keccak256(toHex(`local-hypercore-${transfer.transferId}`)));
+  }
+
+  async deliver(transfer: BridgeTransfer): Promise<DeliverResult> {
+    await sleep(this.stepDelayMs);
+    return { status: "done", state: "forwarded", tx: `local-forward-${transfer.transferId}` };
+  }
+
+  destinationBalance(): Promise<bigint> {
+    return this.evm.publicClient.readContract({
+      address: this.evm.addresses.usdc,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [LOCAL_HYPERCORE_SINK],
+    });
+  }
+}
+
 async function deployFromArtifacts(
   rpcUrl: string,
   deployer: Hex,
   transmitterOwner: Hex,
   attester: Hex,
 ): Promise<LocalDeployment> {
-  const publicClient = createPublicClient({ transport: http(rpcUrl) });
+  const publicClient = createPublicClient({ transport: http(rpcUrl), pollingInterval: LOCAL_POLL_MS });
   const walletClient = createWalletClient({ account: deployer, transport: http(rpcUrl) });
   const chainId = await publicClient.getChainId();
   const deploy = async (item: Artifact, args: unknown[]): Promise<Hex> => {
@@ -140,7 +190,18 @@ async function deployFromArtifacts(
     deployer,
     transmitterOwner,
   ]);
-  const vault = await deploy(artifact("ShareVault", "ShareVault"), [usdc, deployer, deployer]);
+  const vaultArtifact = artifact("ShareVault", "ShareVault");
+  const vault = await deploy(vaultArtifact, [usdc, deployer, deployer]);
+  const creForwarder = await deploy(artifact("MockForwarder", "MockForwarder"), []);
+  const navReceiver = await deploy(artifact("NavReceiver", "NavReceiver"), [vault, creForwarder, deployer]);
+  const configureVault = async (functionName: string, args: unknown[]) => {
+    const hash = await walletClient.writeContract({ address: vault, abi: vaultArtifact.abi, functionName, args, chain: null });
+    await publicClient.waitForTransactionReceipt({ hash });
+  };
+  await configureVault("setNavReceiver", [navReceiver]);
+  await configureVault("setOperator", [deployer]);
+  await configureVault("setDestinationAllowed", [deployer, true]);
+  await configureVault("setMoveCaps", [LOCAL_MOVE_CAP, LOCAL_MOVE_CAP]);
   const messenger = addressToBytes32("0x00000000000000000000000000000000000000a1");
   const burnToken = addressToBytes32("0x00000000000000000000000000000000000000b2");
   const local = addressToBytes32("0x00000000000000000000000000000000000000c3");
@@ -157,6 +218,8 @@ async function deployFromArtifacts(
     chainId,
     usdc,
     shareVault: vault,
+    navReceiver,
+    creForwarder,
     hookExecutor,
     messageTransmitterV2: transmitter,
   };
@@ -174,6 +237,11 @@ export type LocalArc = {
   hookExecutor: Hex;
   beneficiary: Hex;
   route: RoutePolicy;
+  hypercore: { adapter: RouteAdapter; route: RoutePolicy };
+  vault: VaultTreasury;
+  addresses: LocalDeployment;
+  publicClient: PublicClient;
+  treasury: Hex;
   depositIntent(amount: bigint): TopUpIntent;
   vaultPosition(): Promise<bigint>;
 };
@@ -187,7 +255,7 @@ export async function setupLocalArc(rpcUrl: string, options: LocalArcOptions): P
     nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
     rpcUrls: { default: { http: [rpcUrl] } },
   });
-  const publicClient = createPublicClient({ chain, transport: http() });
+  const publicClient = createPublicClient({ chain, transport: http(), pollingInterval: LOCAL_POLL_MS });
   const [operator, beneficiary] = await createWalletClient({ transport: http(rpcUrl) }).getAddresses();
   if (!operator || !beneficiary) throw new Error("the local node exposes no unlocked accounts");
 
@@ -269,6 +337,31 @@ export async function setupLocalArc(rpcUrl: string, options: LocalArcOptions): P
       }),
     });
 
+  const sinkWord = addressToBytes32(LOCAL_HYPERCORE_SINK);
+  const buildHypercoreMessage = (amount: bigint, nonce: Hex): Hex =>
+    encodeMessage({
+      version: MESSAGE_VERSION,
+      sourceDomain: CCTP_DOMAINS.arc,
+      destinationDomain: CCTP_DOMAINS.hyperEvm,
+      nonce,
+      sender: sinkWord,
+      recipient: sinkWord,
+      destinationCaller: sinkWord,
+      minFinalityThreshold: FINALITY_FAST,
+      finalityThresholdExecuted: FINALITY_FAST,
+      body: encodeBurnBody({
+        version: BURN_BODY_VERSION,
+        burnToken: sinkWord,
+        mintRecipient: sinkWord,
+        amount,
+        messageSender: addressToBytes32(operator),
+        maxFee: LOCAL_FEE,
+        feeExecuted: LOCAL_FEE,
+        expirationBlock: 0n,
+        hookData: "0x",
+      }),
+    });
+
   const evm = new EvmDriver(publicClient, walletClient, {
     usdc,
     tokenMessenger: hookExecutor,
@@ -282,6 +375,14 @@ export async function setupLocalArc(rpcUrl: string, options: LocalArcOptions): P
     hookExecutor,
     beneficiary,
     route: { destination: hookExecutor, maxFee: LOCAL_FEE, beneficiary },
+    hypercore: {
+      adapter: new LocalHypercoreAdapter(evm, buildHypercoreMessage, options.stepDelayMs),
+      route: { destination: LOCAL_HYPERCORE_SINK, maxFee: LOCAL_FEE },
+    },
+    vault: new VaultTreasury(shareVault, operator, new ViemVaultChain(publicClient, walletClient, shareVault)),
+    addresses,
+    publicClient,
+    treasury: operator,
     depositIntent: (amount) => ({
       intentId: keccak256(toHex(`local-deposit-${Date.now()}-${Math.random()}`)),
       closeId: 1,

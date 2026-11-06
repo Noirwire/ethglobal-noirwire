@@ -17,7 +17,25 @@ BRIDGE_SOLANA_CLONE=1 pnpm --filter @noirwire/bridge exec vitest run test/solana
 | `solana-arc` | Solana (5) | Arc (26) | `depositForBurnWithHook`, mintRecipient and destinationCaller are the Arc `HookExecutor`; we call `HookExecutor.relay(message, attestation)`. Result is `vault-credited` or `claimable`. |
 | `arc-solana` | Arc (26) | Solana (5) | EVM `depositForBurn`, then `receive_message` on Solana. Credited when the Solana mint confirms. |
 | `arc-hypercore` | Arc (26) | HyperEVM (19) then HyperCore | Burn to the Circle `CctpForwarder` with the `cctp-forward` hook; Circle's forwarding service mints and forwards. `forwarded` is set from the Iris `forwardState`, `credited` only after a Hyperliquid info API read shows the balance rose by the net amount. |
-| `hypercore-arc` | HyperCore | Arc | Not implemented (needs a Hyperliquid withdrawal). Intents on it are rejected. |
+| `hypercore-arc` | HyperCore | Arc | Not implemented (needs a Hyperliquid withdrawal). Intents on it are rejected, or recorded as `route not available` when they come from the chain. |
+
+## Automatic rebalancing
+
+The loop from the Chainlink workflow to the money moving needs no operator.
+
+1. The workflow writes a kind 2 report; `NavReceiver` emits `TopUpIntentRecorded`.
+2. The onchain intent watcher (`src/intent-watcher.ts`) polls the receiver's logs from a cursor file, only up to `head - INTENT_CONFIRMATIONS`, and submits each decoded event to the executor. The cursor is written to a temp file, fsynced, renamed and the directory fsynced, and only after the page of events has been handled. A first run with no cursor starts at the current head (or `INTENT_START_BLOCK`); a corrupt cursor stops the watcher instead of guessing.
+3. The executor keys every transfer on its `intentId` (`<intentId>:<chunk>`), so a replayed log, a restart or the same event seen twice returns the transfers that already exist and moves nothing again. A malformed log is skipped and counted. An intent the bridge cannot serve (no adapter for the route, a cap, the allowlist) is recorded as a `failed` transfer with the reason, for example `route not available: route hypercore-arc is not supported`, so it is visible and a replay does not retry it. Refused records do not use up the daily cap.
+4. For `arc-hypercore`, before each chunk is burned the bridge calls `ShareVault.moveToVenue(<bridge Arc treasury>, amount)` (`src/vault.ts`). The treasury address is the address of `ARC_OPERATOR_KEY`, which must be the vault's operator and be on its destination allowlist. If the simulation shows the vault would revert (per-call cap, per-epoch cap, not enough idle assets, not allowlisted), the transfer goes to `failed` with `vault refused the release: <reason>`, it is logged, nothing is burned and it is never retried. Later chunks of a split intent are released only when their turn comes.
+5. For a transfer whose route destination is the vault address, the last step after `minted` is `ShareVault.acknowledgeReturn(net amount)`, then `credited`. It is generic: a new return adapter only has to mint to the vault and set the route destination to the vault address. The `hypercore-arc` adapter itself is not built here, so intents on it end as `route not available`.
+
+### Crash safety
+
+Each vault call is journaled as `armed` (fsynced, with the block number) before the transaction is sent, then as `sent` with the tx hash (fsynced), then `done` after the receipt. On restart, `armed` without a hash is resolved by checking that the operator has no pending transactions and then looking for the `MovedToVenue` or `ReturnAcknowledged` event since the armed block that no other transfer has claimed: found means it is adopted, not found means it never left and is sent now. `sent` is resolved from the receipt of the recorded hash. A failure to learn the outcome is reported as pending and retried on the next tick, never guessed.
+
+### Money in flight
+
+`moveToVenue` lowers the vault ledger and the NAV vault cash leg at once, while the USDC sits in the bridge wallet until the burn. For vault funded routes the transfer endpoint therefore adds `released: true|false` to each transfer. The NAV workflow counts a transfer that is `requested` and `released` as in transit, never one that is `released: false`, so the sum vault cash + in transit + destination is the same at every step. The flag is absent on routes that do not release from the vault, where the old rule (not counted until burned) applies. `test/rebalance.test.ts` checks the sum after every step.
 
 ## States
 
@@ -36,7 +54,7 @@ Every transfer carries `attester`: `circle-iris` when the Iris client signs off,
 
 ## HTTP API (port 8702)
 
-- `GET /v1/transfers?state=in-flight` array of `BridgeTransfer` (the NAV attestor reads this); other `state` values filter, none lists all
+- `GET /v1/transfers?state=in-flight` array of `BridgeTransfer` (the NAV attestor reads this), with `released` on vault funded routes; other `state` values filter, none lists all
 - `GET /v1/transfers/:id`
 - `POST /v1/intents` body is a `TopUpIntent`; 202 with the created transfers, 400 invalid, 422 rejected by policy
 - `GET /events` server-sent `FlowEvent` of kind `transfer`
@@ -51,13 +69,14 @@ Per-transfer cap (HyperCore hard max 1000 USDC, larger amounts are split), daily
 
 ## Local mode
 
-`BRIDGE_NETWORK=local pnpm start` (or `make bridge-up`) runs the HTTP service against a local anvil that already holds the `make deploy-local` deployment. Only the `solana-arc` route is wired; the attester is the generated `LocalAttester` (registered on the mock transmitter at start), so every transfer is labelled `local-test-attester`. Testnet is the default and is unchanged.
+`BRIDGE_NETWORK=local pnpm start` (or `make bridge-up`) runs the HTTP service against a local anvil that already holds the `make deploy-local` deployment. The `solana-arc` route and a local `arc-hypercore` route are wired; the local `arc-hypercore` burn is an ERC-20 transfer to a fixed sink address, and the vault release and the `NavReceiver` watcher use the addresses in `deployments/local.json`. The attester is the generated `LocalAttester` (registered on the mock transmitter at start), so every transfer is labelled `local-test-attester`. Testnet is the default and is unchanged.
 
 | Env | Meaning |
 | --- | --- |
 | `BRIDGE_NETWORK` | `testnet` (default) or `local` |
 | `ARC_RPC_URL` | local node, default `http://127.0.0.1:8545`; the chain id is read from the node and must match `contracts/vault/deployments/local.json` |
 | `BRIDGE_PORT` | HTTP port, default 8702 (both modes) |
+| `INTENT_CONFIRMATIONS`, `INTENT_POLL_MS`, `INTENT_CURSOR_FILE`, `INTENT_START_BLOCK` | watcher settings, see the testnet table (both modes) |
 | `BRIDGE_LOCAL_STEP_MS` | pause per step so a transfer is visibly walking, default 1000 |
 
 `POST /v1/dev/deposit` (local mode only, 404 otherwise) with an optional body `{"amount": "<base units>"}` (default 7500000) simulates one Solana to Arc deposit and returns 202 with the transfer and the credited beneficiary. Poll `GET /v1/transfers` to watch `burned`, `attested`, `hook-executed`, `vault-credited`.
@@ -76,9 +95,19 @@ Testnet (the operator's first real burn): nothing in the test suite sends to a p
 | `ARC_OPERATOR_KEY` | EVM key for burns and relays on Arc (required) |
 | `ARC_RPC_URL`, `ARC_USDC`, `HOOK_EXECUTOR` | Arc RPC (default `https://rpc.testnet.arc.network`), USDC (default `0x3600...0000`), deployed HookExecutor |
 | `SOLANA_KEYPAIR_PATH`, `SOLANA_RPC_URL` | JSON keypair file for the Solana maker, devnet RPC |
+| `SHARE_VAULT` | Arc `ShareVault`. Set it and `arc-hypercore` chunks are released from the vault before the burn. `ARC_OPERATOR_KEY` must be the vault operator and its address must be allowlisted on the vault with non-zero caps |
+| `NAV_RECEIVER` | Arc `NavReceiver`. Set it (requires `SHARE_VAULT`) to start the onchain intent watcher |
+| `INTENT_CONFIRMATIONS` | blocks to wait before reading a log, default 2 |
+| `INTENT_POLL_MS` | poll interval, default 10000 |
+| `INTENT_CURSOR_FILE` | durable cursor, default `./data/intent-cursor.json` |
+| `INTENT_START_BLOCK` | first block on a run with no cursor file, default the current head |
 | `HYPERCORE_RECIPIENT` | HyperCore account (EVM address) that receives margin |
 | `RETURN_BENEFICIARY` | Arc address credited on `solana-arc` returns |
 | `DESTINATION_ALLOWLIST`, `DAILY_CAP`, `PER_TRANSFER_CAP`, `BRIDGE_JOURNAL`, `INTENT_FILE`, `IRIS_URL` | policy and plumbing |
+
+### Vault setup for automatic top-ups
+
+`contracts/vault/script/DeployArcTestnet.s.sol` allowlists `TREASURY_EXECUTOR` on the vault, so set it to the address of `ARC_OPERATOR_KEY`, and set `OPERATOR` to the same address. `MOVE_CAP_PER_CALL` and `MOVE_CAP_PER_EPOCH` (USDC base units) set the vault's move caps; left unset they are zero and the vault releases nothing, so every top-up is refused with the cap reason.
 
 ### What the operator must fund
 

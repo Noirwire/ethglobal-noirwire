@@ -8,12 +8,27 @@ import {
   type TransferState,
 } from "@noirwire/shared";
 
+export type StepStatus = "armed" | "sent" | "done" | "refused";
+
+export type StepRecord = {
+  status: StepStatus;
+  amount: string;
+  fromBlock?: string;
+  txHash?: string;
+  reason?: string;
+};
+
+export type StepKey = "release" | "acknowledge";
+
 export type TransferMeta = {
   resumeState?: TransferState;
   burnAttempted?: boolean;
   baselineBalance?: string;
   createdAt: string;
   intentId?: string;
+  release?: StepRecord;
+  acknowledge?: StepRecord;
+  refusedReason?: string;
 };
 
 export type TransferRecord = { transfer: BridgeTransfer; meta: TransferMeta };
@@ -65,7 +80,7 @@ const NEXT: Record<TransferState, readonly TransferState[]> = {
 };
 
 const ROUTE_STATES: Record<TransferRoute, ReadonlySet<TransferState>> = {
-  "solana-arc": new Set(["requested", "burned", "attested", "minted", "hook-executed", "vault-credited", "claimable", "stuck", "failed"]),
+  "solana-arc": new Set(["requested", "burned", "attested", "minted", "hook-executed", "vault-credited", "claimable", "credited", "stuck", "failed"]),
   "arc-solana": new Set(["requested", "burned", "attested", "minted", "credited", "stuck", "failed"]),
   "arc-hypercore": new Set(["requested", "burned", "attested", "minted", "forwarded", "credited", "stuck", "failed"]),
   "hypercore-arc": new Set(["requested", "burned", "attested", "minted", "credited", "stuck", "failed"]),
@@ -141,17 +156,49 @@ export class TransferStore {
   createdAmountOnDay(day: string): bigint {
     let total = 0n;
     for (const { transfer, meta } of this.records.values()) {
-      if (meta.createdAt.slice(0, 10) === day) total += BigInt(transfer.grossAmount);
+      if (meta.refusedReason === undefined && meta.createdAt.slice(0, 10) === day) total += BigInt(transfer.grossAmount);
     }
     return total;
   }
 
-  setMeta(transferId: string, patch: Partial<TransferMeta>): void {
+  forIntent(intentId: string): BridgeTransfer[] {
+    return this.list().filter((transfer) => this.records.get(transfer.transferId)?.meta.intentId === intentId);
+  }
+
+  stepTxHashes(key: StepKey): Set<string> {
+    const hashes = new Set<string>();
+    for (const { meta } of this.records.values()) {
+      const hash = meta[key]?.txHash;
+      if (hash) hashes.add(hash.toLowerCase());
+    }
+    return hashes;
+  }
+
+  isReleased(transferId: string): boolean {
+    return this.records.get(transferId)?.meta.release?.status === "done";
+  }
+
+  setMeta(transferId: string, patch: Partial<TransferMeta>, durable = false): void {
     const record = this.require(transferId);
-    this.commit("update", {
-      transfer: record.transfer,
-      meta: { ...record.meta, ...patch },
-    });
+    this.commit(
+      "update",
+      {
+        transfer: record.transfer,
+        meta: { ...record.meta, ...patch },
+      },
+      durable,
+    );
+  }
+
+  refuse(transferId: string, reason: string): BridgeTransfer {
+    const record = this.require(transferId);
+    const { transfer } = record;
+    if (!NEXT[transfer.state].includes("failed")) {
+      throw new IllegalTransition(`${transferId}: ${transfer.state} cannot be refused`);
+    }
+    const next = bridgeTransfer.parse({ ...transfer, state: "failed", error: reason, updatedAt: this.now().toISOString() });
+    this.commit("update", { transfer: next, meta: { ...record.meta, refusedReason: reason } }, true);
+    return next;
   }
 
   canBurn(transferId: string): boolean {

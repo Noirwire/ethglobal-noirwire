@@ -100,11 +100,11 @@ export function createBridgeServer(
       if (req.method === "GET" && url.pathname === "/v1/transfers") {
         const state = url.searchParams.get("state");
         const transfers = state === "in-flight" ? store.inFlight() : store.list().filter((t) => !state || t.state === state);
-        return json(res, 200, transfers);
+        return json(res, 200, transfers.map((transfer) => executor.view(transfer)));
       }
       if (req.method === "GET" && url.pathname.startsWith("/v1/transfers/")) {
         const transfer = store.get(decodeURIComponent(url.pathname.slice("/v1/transfers/".length)));
-        return transfer ? json(res, 200, transfer) : json(res, 404, { error: "unknown transfer" });
+        return transfer ? json(res, 200, executor.view(transfer)) : json(res, 404, { error: "unknown transfer" });
       }
       if (req.method === "POST" && url.pathname === "/v1/intents") {
         const transfers = executor.submit(await readBody(req, topUpIntent));

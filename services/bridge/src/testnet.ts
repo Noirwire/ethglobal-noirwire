@@ -9,7 +9,9 @@ import { EvmDriver } from "./evm.ts";
 import type { ExecutorConfig, RouteAdapter, TreasuryExecutor } from "./executor.ts";
 import { VAULT_HOOK_DEADLINE_SECONDS } from "./hooks.ts";
 import { HyperliquidInfoReader } from "./hyperliquid.ts";
+import { DurableCursor, OnchainIntentWatcher, ViemIntentLogReader, watcherSettings } from "./intent-watcher.ts";
 import type { IrisClient } from "./iris.ts";
+import { VaultTreasury, ViemVaultChain } from "./vault.ts";
 import { SolanaDriver } from "./solana.ts";
 import { ConnectionReader, SolanaDeposits, type SolanaDepositApi } from "./solana-deposit.ts";
 
@@ -21,8 +23,12 @@ export function wireTestnet(
   iris: IrisClient,
   adapters: Partial<Record<TransferRoute, RouteAdapter>>,
   config: ExecutorConfig,
-): { solanaDeposits?: (executor: TreasuryExecutor) => SolanaDepositApi } {
+): {
+  solanaDeposits?: (executor: TreasuryExecutor) => SolanaDepositApi;
+  intentWatcher?: { build: (executor: TreasuryExecutor) => OnchainIntentWatcher; pollMs: number };
+} {
   let solanaDeposits: ((executor: TreasuryExecutor) => SolanaDepositApi) | undefined;
+  let intentWatcher: { build: (executor: TreasuryExecutor) => OnchainIntentWatcher; pollMs: number } | undefined;
   const operatorKey = env("ARC_OPERATOR_KEY");
   if (!operatorKey) throw new Error("ARC_OPERATOR_KEY is required");
 
@@ -45,6 +51,26 @@ export function wireTestnet(
       hookExecutor,
     },
   );
+
+  const shareVault = env("SHARE_VAULT") as Hex | undefined;
+  const navReceiver = env("NAV_RECEIVER") as Hex | undefined;
+  if (navReceiver && !shareVault) throw new Error("NAV_RECEIVER needs SHARE_VAULT so intents can release funds from the vault");
+  if (shareVault) {
+    config.vault = new VaultTreasury(shareVault, arcOperator.address, new ViemVaultChain(evm.publicClient, evm.walletClient, shareVault));
+  }
+  if (navReceiver) {
+    const settings = watcherSettings(env);
+    intentWatcher = {
+      pollMs: settings.pollMs,
+      build: (executor) =>
+        new OnchainIntentWatcher(
+          new ViemIntentLogReader(evm.publicClient, navReceiver),
+          new DurableCursor(settings.cursorFile),
+          executor,
+          settings.options,
+        ),
+    };
+  }
 
   const hyperCoreRecipient = env("HYPERCORE_RECIPIENT") as Hex | undefined;
   if (hyperCoreRecipient) {
@@ -89,5 +115,5 @@ export function wireTestnet(
         });
     }
   }
-  return { solanaDeposits };
+  return { solanaDeposits, intentWatcher };
 }

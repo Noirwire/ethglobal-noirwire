@@ -2,9 +2,11 @@ import { CCTP_DOMAINS, SETTLED_TRANSFER_STATES, type BridgeTransfer, type TopUpI
 import type { Hex } from "viem";
 import type { Attester } from "./iris.ts";
 import { decodeBurnBody, decodeMessage, messageHash } from "./message.ts";
-import type { StateTimeouts, TransferStore } from "./transfers.ts";
+import type { StateTimeouts, StepKey, TransferStore } from "./transfers.ts";
+import type { StepLog, VaultPort } from "./vault.ts";
 
 export const HYPERCORE_MAX_PER_TRANSFER = 1_000_000_000n;
+const RELEASED_FROM_VAULT: ReadonlySet<TransferRoute> = new Set(["arc-hypercore"]);
 
 export type DeliverResult =
   | { status: "done"; state: "minted" | "hook-executed" | "forwarded"; tx?: string }
@@ -17,6 +19,8 @@ export interface RouteAdapter {
   hookOutcome?(transfer: BridgeTransfer): Promise<"vault-credited" | "claimable">;
   destinationBalance?(transfer: BridgeTransfer): Promise<bigint>;
 }
+
+export type TransferView = BridgeTransfer & { released?: boolean };
 
 export type RoutePolicy = {
   destination: string;
@@ -33,9 +37,11 @@ export type ExecutorConfig = {
   stuckTimeoutMs: number;
   stateTimeouts?: StateTimeouts;
   stuckRetryMs: number;
+  vault?: VaultPort;
 };
 
 export class IntentRejected extends Error {}
+export class RouteUnavailable extends IntentRejected {}
 
 const DOMAINS: Record<TransferRoute, [number, number]> = {
   "arc-solana": [CCTP_DOMAINS.arc, CCTP_DOMAINS.solana],
@@ -59,7 +65,7 @@ export class TreasuryExecutor {
   ) {}
 
   submit(intent: TopUpIntent): BridgeTransfer[] {
-    const existing = this.store.list().filter((t) => this.store.meta(t.transferId)?.intentId === intent.intentId);
+    const existing = this.store.forIntent(intent.intentId);
     if (existing.length > 0) {
       const sameAmount = existing.reduce((sum, t) => sum + BigInt(t.grossAmount), 0n) === BigInt(intent.amount);
       if (!sameAmount || existing.some((t) => t.route !== intent.route)) {
@@ -99,6 +105,34 @@ export class TreasuryExecutor {
     return created;
   }
 
+  view(transfer: BridgeTransfer): TransferView {
+    if (!this.releasesFromVault(transfer)) return transfer;
+    return { ...transfer, released: this.store.isReleased(transfer.transferId) };
+  }
+
+  private releasesFromVault(transfer: BridgeTransfer): boolean {
+    return this.config.vault !== undefined && RELEASED_FROM_VAULT.has(transfer.route);
+  }
+
+  recordRefused(intent: TopUpIntent, reason: string): BridgeTransfer {
+    const existing = this.store.forIntent(intent.intentId)[0];
+    if (existing) return existing;
+    const transferId = `${intent.intentId}:0`;
+    const [sourceDomain, destinationDomain] = DOMAINS[intent.route];
+    this.store.create({
+      transferId,
+      route: intent.route,
+      sourceDomain,
+      destinationDomain,
+      grossAmount: intent.amount,
+      maxFee: "0",
+      attester: this.attester.label,
+      closeId: intent.closeId,
+      intentId: intent.intentId,
+    });
+    return this.store.refuse(transferId, reason);
+  }
+
   checkDeposit(route: TransferRoute, amount: bigint): void {
     const policy = this.allowedRoute(route);
     if (amount <= policy.maxFee) throw new IntentRejected(`amount must be above the ${policy.maxFee} base unit fee ceiling`);
@@ -109,7 +143,7 @@ export class TreasuryExecutor {
 
   private allowedRoute(route: TransferRoute): RoutePolicy {
     const policy = this.config.routes[route];
-    if (!policy || !this.adapters[route]) throw new IntentRejected(`route ${route} is not supported`);
+    if (!policy || !this.adapters[route]) throw new RouteUnavailable(`route ${route} is not supported`);
     if (!this.config.allowlist.has(policy.destination.toLowerCase())) {
       throw new IntentRejected(`destination ${policy.destination} is not on the allowlist`);
     }
@@ -201,6 +235,7 @@ export class TreasuryExecutor {
       case "attested":
         return this.deliver(transfer, adapter);
       case "minted": {
+        if (this.returnsToVault(transfer)) return this.acknowledgeReturn(transfer);
         if (transfer.route !== "arc-solana") return { changed: false, pending: "minted with no next step on this route" };
         this.store.transition(id, "credited", { creditTx: transfer.mintTx });
         return { changed: true };
@@ -231,10 +266,54 @@ export class TreasuryExecutor {
       const baseline = await adapter.destinationBalance(transfer);
       this.store.setMeta(id, { baselineBalance: baseline.toString() });
     }
+    const vault = this.config.vault;
+    if (vault && this.releasesFromVault(transfer)) {
+      const released = await vault.release(
+        this.stepLog(id, "release"),
+        BigInt(transfer.grossAmount),
+        this.store.stepTxHashes("release"),
+      );
+      if (released.status === "pending") return { changed: false, pending: released.reason };
+      if (released.status === "refused") {
+        const reason = `vault refused the release: ${released.reason}`;
+        console.error(`transfer ${id} refused: ${reason}`);
+        this.store.refuse(id, reason);
+        return { changed: true };
+      }
+    }
     this.store.beginBurn(id);
     const { burnTx } = await adapter.burn(transfer);
     this.store.transition(id, "burned", { burnTx });
     return { changed: true };
+  }
+
+  private stepLog(transferId: string, key: StepKey): StepLog {
+    return {
+      read: () => this.store.meta(transferId)?.[key],
+      write: (record, durable) => this.store.setMeta(transferId, { [key]: record }, durable),
+    };
+  }
+
+  private returnsToVault(transfer: BridgeTransfer): boolean {
+    const vault = this.config.vault;
+    const destination = this.config.routes[transfer.route]?.destination;
+    return vault !== undefined && destination !== undefined && destination.toLowerCase() === vault.vault.toLowerCase();
+  }
+
+  private async acknowledgeReturn(transfer: BridgeTransfer): Promise<StepResult> {
+    const vault = this.config.vault as VaultPort;
+    const amount =
+      transfer.netMinted !== undefined ? BigInt(transfer.netMinted) : BigInt(transfer.grossAmount) - BigInt(transfer.maxFee);
+    const acknowledged = await vault.acknowledge(
+      this.stepLog(transfer.transferId, "acknowledge"),
+      amount,
+      this.store.stepTxHashes("acknowledge"),
+    );
+    if (acknowledged.status === "done") {
+      this.store.transition(transfer.transferId, "credited", { creditTx: acknowledged.txHash });
+      return { changed: true };
+    }
+    return { changed: false, pending: acknowledged.status === "pending" ? acknowledged.reason : `vault refused the acknowledgement: ${acknowledged.reason}` };
   }
 
   private async attest(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
