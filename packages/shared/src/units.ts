@@ -3,10 +3,13 @@ import { z } from "zod";
 export const USDC_DECIMALS = 6;
 export const BTC_DECIMALS = 8;
 
-const baseUnits = z.string().regex(/^-?\d+$/, "integer string in base units");
+const unsignedUnits = z.string().regex(/^\d+$/, "non-negative integer string in base units");
+const signedUnits = z.string().regex(/^-?\d+$/, "integer string in base units");
 
-export const usdc6 = baseUnits.describe("USDC amount in 6-decimal base units");
-export const btc8 = baseUnits.describe("BTC amount in 8-decimal base units, the same scale as WBTC");
+export const usdc6 = unsignedUnits.describe("USDC amount in 6-decimal base units");
+export const btc8 = unsignedUnits.describe("BTC size in 8-decimal base units, the same scale as WBTC");
+export const signedBtc8 = signedUnits.describe("Signed BTC position in 8-decimal base units, long is positive");
+export const signedUsdc6 = signedUnits.describe("Signed USDC amount in 6-decimal base units");
 export const price = z
   .string()
   .regex(/^\d+(\.\d+)?$/, "decimal string")
