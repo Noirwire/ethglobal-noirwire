@@ -25,6 +25,13 @@ export function toBaseUnits(decimal: string, decimals: number): bigint {
   return negative ? -units : units;
 }
 
+export function parseDecimalTruncating(value: string, decimals: number): bigint {
+  const negative = value.startsWith("-");
+  const [whole = "0", fraction = ""] = value.replace(/^-/, "").split(".");
+  const units = BigInt(whole + fraction.slice(0, decimals).padEnd(decimals, "0"));
+  return negative ? -units : units;
+}
+
 export function fromBaseUnits(units: bigint, decimals: number): string {
   const negative = units < 0n;
   const digits = (negative ? -units : units).toString().padStart(decimals + 1, "0");

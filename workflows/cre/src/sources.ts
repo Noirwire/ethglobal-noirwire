@@ -48,10 +48,8 @@ export function parseHyperliquid(text: string): HyperliquidAccount {
   };
 }
 
-const transferView = bridgeTransfer.extend({ released: z.boolean().optional() });
-
 export function parseTransfers(text: string): BridgeTransferView[] {
   const raw: unknown = JSON.parse(text);
   if (!Array.isArray(raw)) throw new Error("transfers response is not an array");
-  return raw.map((item) => transferView.parse(item));
+  return raw.map((item) => bridgeTransfer.parse(item));
 }

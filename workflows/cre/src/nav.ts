@@ -1,8 +1,9 @@
 import {
-  NAV_LEG_CODES,
   SETTLED_TRANSFER_STATES,
-  TRUST_CODES,
+  SOURCE_RECORD_PARAMS,
   fromBaseUnits,
+  parseDecimalTruncating,
+  toSourceRecords,
   type BridgeTransfer,
   type NavLeg,
   type NavSnapshot,
@@ -44,10 +45,7 @@ const SHARE_DECIMALS_OVER_USDC_DECIMALS = 10n ** 12n;
 export function parseDecimalToUnits(value: string, decimals: number): bigint {
   const trimmed = value.trim();
   if (!/^-?\d+(\.\d+)?$/.test(trimmed)) throw new Error(`not a decimal: ${value}`);
-  const negative = trimmed.startsWith("-");
-  const [whole = "0", fraction = ""] = trimmed.replace(/^-/, "").split(".");
-  const units = BigInt(whole + fraction.slice(0, decimals).padEnd(decimals, "0"));
-  return negative ? -units : units;
+  return parseDecimalTruncating(trimmed, decimals);
 }
 
 export function valueWbtcInUsdc6(wbtcE8: bigint, btcUsdE8: bigint): bigint {
@@ -166,35 +164,8 @@ export function sharePriceE18(netAssets6: bigint, shareSupply18: bigint): bigint
   return (netAssets6 * SHARE_DECIMALS_OVER_USDC_DECIMALS * E18) / shareSupply18;
 }
 
-const SOURCE_RECORD_PARAMS = [
-  {
-    type: "tuple[]",
-    components: [
-      { name: "leg", type: "uint8" },
-      { name: "account", type: "bytes32" },
-      { name: "assets", type: "uint256" },
-      { name: "liabilities", type: "uint256" },
-      { name: "observedAt", type: "uint64" },
-      { name: "trust", type: "uint8" },
-    ],
-  },
-] as const;
-
-function accountHash(account: string): `0x${string}` {
-  return keccak256(toHex(account));
-}
-
 export function sourcesHash(sources: NavSource[]): `0x${string}` {
-  const records = sources
-    .map((source) => ({
-      leg: NAV_LEG_CODES[source.leg],
-      account: accountHash(source.account),
-      assets: BigInt(source.assets),
-      liabilities: BigInt(source.liabilities),
-      observedAt: BigInt(Math.floor(Date.parse(source.observedAt) / 1000)),
-      trust: TRUST_CODES[source.trust],
-    }))
-    .sort((a, b) => (a.leg !== b.leg ? a.leg - b.leg : a.account < b.account ? -1 : a.account > b.account ? 1 : 0));
+  const records = toSourceRecords(sources, (account) => keccak256(toHex(account)));
   return keccak256(encodeAbiParameters(SOURCE_RECORD_PARAMS, [records]));
 }
 
