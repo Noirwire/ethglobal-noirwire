@@ -2,7 +2,7 @@ import { parseAbi } from "viem";
 
 export const hedgeGuardAbi = parseAbi([
   "constructor(address router, address wbtc, address usdc, address initialOwner, address initialHedger, (address feed, uint32 maxAge, uint16 maxDeviationBps) initialOracle)",
-  "function setTarget(address maker, uint8 direction, uint64 size, uint64 minPriceE8, uint64 maxPriceE8, uint40 expiry)",
+  "function setTarget(address maker, bytes32 targetId, uint8 direction, uint64 size, uint64 minPriceE8, uint64 maxPriceE8, uint40 expiry)",
   "function clearTarget(address maker)",
   "function setOracle(address feed, uint32 maxAge, uint16 maxDeviationBps)",
   "function targetOf(address maker) view returns ((uint8 direction, uint64 remaining, uint64 minPriceE8, uint64 maxPriceE8, uint40 expiry) target)",
@@ -15,6 +15,7 @@ export const hedgeGuardAbi = parseAbi([
   "error HedgeGuard__ZeroAddress()",
   "error HedgeGuard__InvalidTarget()",
   "error HedgeGuard__InvalidOracleConfig()",
+  "error HedgeGuard__TargetIdConflict(bytes32 targetId)",
   "error HedgeGuard__TargetNotSet(address maker)",
   "error HedgeGuard__TargetExpired(uint40 expiry)",
   "error HedgeGuard__AmountsNotComputed()",

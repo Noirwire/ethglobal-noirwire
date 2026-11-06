@@ -1,5 +1,6 @@
 import type { Order } from "@1inch/swap-vm-sdk";
-import { type Address, type Hex, encodeFunctionData } from "viem";
+import { randomBytes } from "node:crypto";
+import { type Address, type Hex, encodeFunctionData, toHex } from "viem";
 import { aquaAbi, hedgeGuardAbi } from "./abis.js";
 import { type DirectionCode, type HedgeTarget, bandAround } from "./band.js";
 import type { ForkClients } from "./chain.js";
@@ -20,6 +21,7 @@ export interface TargetRequest {
   direction: DirectionCode;
   size8: bigint;
   ttlSeconds: bigint;
+  targetId?: Hex;
 }
 
 export class AquaMaker {
@@ -74,23 +76,37 @@ export class AquaMaker {
     return { order, strategyHash: strategyHash(order), ship, approvals };
   }
 
-  async setTarget(request: TargetRequest): Promise<{ tx: SentTx; target: HedgeTarget }> {
+  async setTarget(request: TargetRequest): Promise<{ tx: SentTx; targetId: Hex; target: HedgeTarget }> {
     const oracleE8 = await this.oraclePriceE8();
     const { minPriceE8, maxPriceE8 } = bandAround(oracleE8, TARGET_BAND_HALF_WIDTH_BPS);
     const latest = await this.clients.publicClient.getBlock();
     const expiry = latest.timestamp + request.ttlSeconds;
+    const targetId = request.targetId ?? toHex(randomBytes(32));
     const tx = await sendCall(this.clients, "hedger", {
       to: this.deployment.hedgeGuard,
       data: encodeFunctionData({
         abi: hedgeGuardAbi,
         functionName: "setTarget",
-        args: [this.address, request.direction, request.size8, minPriceE8, maxPriceE8, Number(expiry)],
+        args: [this.address, targetId, request.direction, request.size8, minPriceE8, maxPriceE8, Number(expiry)],
       }),
       value: 0n,
     });
+    const stored = await this.clients.publicClient.readContract({
+      address: this.deployment.hedgeGuard,
+      abi: hedgeGuardAbi,
+      functionName: "targetOf",
+      args: [this.address],
+    });
     return {
       tx,
-      target: { direction: request.direction, remaining: request.size8, minPriceE8, maxPriceE8, expiry },
+      targetId,
+      target: {
+        direction: request.direction,
+        remaining: stored.remaining,
+        minPriceE8: stored.minPriceE8,
+        maxPriceE8: stored.maxPriceE8,
+        expiry: BigInt(stored.expiry),
+      },
     };
   }
 

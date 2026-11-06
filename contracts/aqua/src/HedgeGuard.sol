@@ -36,13 +36,28 @@ contract HedgeGuard is Ownable2Step, IHedgeGuard {
     address public hedger;
     OracleConfig public oracleConfig;
     mapping(address maker => Target target) internal s_targets;
+    mapping(address maker => TargetTerms terms) internal s_terms;
+
+    struct TargetTerms {
+        bytes32 id;
+        Direction direction;
+        uint64 size;
+        uint64 minPriceE8;
+        uint64 maxPriceE8;
+    }
 
     /*//////////////////////////////////////////////////////////////
                                   EVENTS
     //////////////////////////////////////////////////////////////*/
 
     event TargetSet(
-        address indexed maker, Direction direction, uint64 size, uint64 minPriceE8, uint64 maxPriceE8, uint40 expiry
+        address indexed maker,
+        bytes32 indexed targetId,
+        Direction direction,
+        uint64 size,
+        uint64 minPriceE8,
+        uint64 maxPriceE8,
+        uint40 expiry
     );
     event TargetCleared(address indexed maker);
     event OracleConfigured(address indexed feed, uint32 maxAge, uint16 maxDeviationBps);
@@ -65,6 +80,7 @@ contract HedgeGuard is Ownable2Step, IHedgeGuard {
     error HedgeGuard__ZeroAddress();
     error HedgeGuard__InvalidTarget();
     error HedgeGuard__InvalidOracleConfig();
+    error HedgeGuard__TargetIdConflict(bytes32 targetId);
     error HedgeGuard__TargetNotSet(address maker);
     error HedgeGuard__TargetExpired(uint40 expiry);
     error HedgeGuard__AmountsNotComputed();
@@ -116,6 +132,7 @@ contract HedgeGuard is Ownable2Step, IHedgeGuard {
     /// @inheritdoc IHedgeGuard
     function setTarget(
         address maker,
+        bytes32 targetId,
         Direction direction,
         uint64 size,
         uint64 minPriceE8,
@@ -123,15 +140,28 @@ contract HedgeGuard is Ownable2Step, IHedgeGuard {
         uint40 expiry
     ) external onlyHedger {
         if (
-            maker == address(0) || direction == Direction.None || size == 0 || minPriceE8 == 0
+            maker == address(0) || targetId == bytes32(0) || direction == Direction.None || size == 0 || minPriceE8 == 0
                 || minPriceE8 > maxPriceE8 || expiry <= block.timestamp
         ) {
             revert HedgeGuard__InvalidTarget();
         }
+        TargetTerms memory terms = s_terms[maker];
+        if (terms.id == targetId) {
+            if (
+                terms.direction != direction || terms.size != size || terms.minPriceE8 != minPriceE8
+                    || terms.maxPriceE8 != maxPriceE8
+            ) {
+                revert HedgeGuard__TargetIdConflict(targetId);
+            }
+            return;
+        }
+        s_terms[maker] = TargetTerms({
+            id: targetId, direction: direction, size: size, minPriceE8: minPriceE8, maxPriceE8: maxPriceE8
+        });
         s_targets[maker] = Target({
             direction: direction, remaining: size, minPriceE8: minPriceE8, maxPriceE8: maxPriceE8, expiry: expiry
         });
-        emit TargetSet(maker, direction, size, minPriceE8, maxPriceE8, expiry);
+        emit TargetSet(maker, targetId, direction, size, minPriceE8, maxPriceE8, expiry);
     }
 
     /// @inheritdoc IHedgeGuard
@@ -225,7 +255,7 @@ contract HedgeGuard is Ownable2Step, IHedgeGuard {
         if (target.direction == Direction.None) {
             revert HedgeGuard__TargetNotSet(query.maker);
         }
-        if (block.timestamp > target.expiry) {
+        if (block.timestamp >= target.expiry) {
             revert HedgeGuard__TargetExpired(target.expiry);
         }
 

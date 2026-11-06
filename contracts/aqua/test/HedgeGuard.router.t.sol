@@ -107,6 +107,7 @@ contract HedgeGuardRouterTest is ForkBase {
         vm.prank(hedger);
         guard.setTarget(
             maker,
+            keccak256("id"),
             IHedgeGuard.Direction.MakerSellsBtc,
             1e6,
             uint64(oracleE8 * 95 / 100),

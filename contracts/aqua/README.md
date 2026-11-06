@@ -20,7 +20,7 @@ The strategy program is `xycSwapXD`, then `extruction(HedgeGuard)`, then `salt`.
 
 ## How HedgeGuard decides
 
-A hedger key sets one target per maker: direction (the maker sells WBTC or buys WBTC), remaining size (8 decimals), a price band (8 decimal USD per BTC) and an expiry. On every quote and swap it checks, in this order:
+A hedger key sets one target per maker: a target id (nonzero `bytes32`), direction (the maker sells WBTC or buys WBTC), remaining size (8 decimals), a price band (8 decimal USD per BTC) and an expiry. Setting is idempotent per id: re-sending the current id with the same direction, size and band is a no-op that keeps the reduced remaining size, the same id with different terms reverts, and a new id replaces the target and refills it. A target is live strictly before its expiry. On every quote and swap it checks, in this order:
 
 1. both swap amounts are computed
 2. a target exists and has not expired

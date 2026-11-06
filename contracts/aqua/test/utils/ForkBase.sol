@@ -27,6 +27,7 @@ abstract contract ForkBase is Test {
 
     HedgeGuard internal guard;
     uint256 internal oracleE8;
+    uint256 internal targetNonce;
 
     function setUp() public virtual {
         vm.createSelectFork(vm.envOr("AQUA_FORK_RPC", string("http://127.0.0.1:8546")));
@@ -48,8 +49,19 @@ abstract contract ForkBase is Test {
     }
 
     function _setTargetWithExpiry(IHedgeGuard.Direction direction, uint64 size, uint40 expiry) internal {
+        ++targetNonce;
+        _setTargetWithId(_currentId(), direction, size, expiry);
+    }
+
+    function _currentId() internal view returns (bytes32 targetId) {
+        targetId = keccak256(abi.encode(targetNonce));
+    }
+
+    function _setTargetWithId(bytes32 targetId, IHedgeGuard.Direction direction, uint64 size, uint40 expiry) internal {
         vm.prank(hedger);
-        guard.setTarget(maker, direction, size, uint64(oracleE8 * 95 / 100), uint64(oracleE8 * 105 / 100), expiry);
+        guard.setTarget(
+            maker, targetId, direction, size, uint64(oracleE8 * 95 / 100), uint64(oracleE8 * 105 / 100), expiry
+        );
     }
 
     function _priceAt(int256 deviationBps) internal view returns (uint256 priceE8) {

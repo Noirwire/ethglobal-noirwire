@@ -24,8 +24,11 @@ interface IHedgeGuard is IExtruction {
         uint16 maxDeviationBps;
     }
 
+    /// @notice Sets a maker's target. Re-sending the current `targetId` with the same direction, size and band is a
+    /// no-op that keeps the remaining size; different terms under that id revert. A new id replaces the target.
     function setTarget(
         address maker,
+        bytes32 targetId,
         Direction direction,
         uint64 size,
         uint64 minPriceE8,

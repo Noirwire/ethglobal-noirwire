@@ -136,11 +136,22 @@ contract HedgeGuardTest is ForkBase {
         _swapAsRouter(_query(direction), registers);
     }
 
-    function testFuzz_FillAtExpiryBoundarySucceeds(bool sells) public {
+    function testFuzz_RevertWhen_FillAtExpiryBoundary(bool sells) public {
         IHedgeGuard.Direction direction = _direction(sells);
         uint40 expiry = uint40(block.timestamp + 10 minutes);
         _setTargetWithExpiry(direction, SIZE, expiry);
         vm.warp(expiry);
+        _mockFeed(int256(oracleE8), block.timestamp, 8);
+
+        vm.expectRevert(abi.encodeWithSelector(HedgeGuard.HedgeGuard__TargetExpired.selector, expiry));
+        _swapAsRouter(_query(direction), _registers(direction, 1e8, _priceAt(0)));
+    }
+
+    function testFuzz_FillOneSecondBeforeExpirySucceeds(bool sells) public {
+        IHedgeGuard.Direction direction = _direction(sells);
+        uint40 expiry = uint40(block.timestamp + 10 minutes);
+        _setTargetWithExpiry(direction, SIZE, expiry);
+        vm.warp(expiry - 1);
         _mockFeed(int256(oracleE8), block.timestamp, 8);
 
         _swapAsRouter(_query(direction), _registers(direction, 1e8, _priceAt(0)));
@@ -305,7 +316,9 @@ contract HedgeGuardTest is ForkBase {
         vm.assume(caller != hedger);
         vm.prank(caller);
         vm.expectRevert(HedgeGuard.HedgeGuard__OnlyHedger.selector);
-        guard.setTarget(maker, IHedgeGuard.Direction.MakerSellsBtc, SIZE, 1, 2, uint40(block.timestamp + 1));
+        guard.setTarget(
+            maker, keccak256("id"), IHedgeGuard.Direction.MakerSellsBtc, SIZE, 1, 2, uint40(block.timestamp + 1)
+        );
     }
 
     function testFuzz_RevertWhen_ClearTargetByNonHedger(address caller) public {
@@ -320,13 +333,13 @@ contract HedgeGuardTest is ForkBase {
         vm.assume(!valid);
         vm.prank(hedger);
         vm.expectRevert(HedgeGuard.HedgeGuard__InvalidTarget.selector);
-        guard.setTarget(maker, IHedgeGuard.Direction.MakerSellsBtc, size, minPrice, maxPrice, expiry);
+        guard.setTarget(maker, keccak256("id"), IHedgeGuard.Direction.MakerSellsBtc, size, minPrice, maxPrice, expiry);
     }
 
     function test_RevertWhen_SetTargetDirectionNone() public {
         vm.prank(hedger);
         vm.expectRevert(HedgeGuard.HedgeGuard__InvalidTarget.selector);
-        guard.setTarget(maker, IHedgeGuard.Direction.None, SIZE, 1, 2, uint40(block.timestamp + 1));
+        guard.setTarget(maker, keccak256("id"), IHedgeGuard.Direction.None, SIZE, 1, 2, uint40(block.timestamp + 1));
     }
 
     function testFuzz_SetTargetOverwritesRemaining(uint64 firstSize, uint64 secondSize) public {
@@ -338,6 +351,63 @@ contract HedgeGuardTest is ForkBase {
         IHedgeGuard.Target memory target = guard.targetOf(maker);
         assertEq(target.remaining, secondSize);
         assertEq(uint8(target.direction), uint8(IHedgeGuard.Direction.MakerBuysBtc));
+    }
+
+    function test_RetryingSetTargetAfterPartialFillKeepsRemaining() public {
+        IHedgeGuard.Direction direction = IHedgeGuard.Direction.MakerSellsBtc;
+        _setTarget(direction, SIZE);
+        _swapAsRouter(_query(direction), _registers(direction, 2e8, _priceAt(0)));
+        assertEq(guard.targetOf(maker).remaining, SIZE - 2e8);
+
+        _setTargetWithId(_currentId(), direction, SIZE, uint40(block.timestamp + 2 days));
+        IHedgeGuard.Target memory target = guard.targetOf(maker);
+        assertEq(target.remaining, SIZE - 2e8);
+        assertEq(target.expiry, block.timestamp + 1 days);
+    }
+
+    function test_RevertWhen_SameTargetIdWithDifferentSize() public {
+        _setTarget(IHedgeGuard.Direction.MakerSellsBtc, SIZE);
+        vm.prank(hedger);
+        vm.expectRevert(abi.encodeWithSelector(HedgeGuard.HedgeGuard__TargetIdConflict.selector, _currentId()));
+        guard.setTarget(
+            maker,
+            _currentId(),
+            IHedgeGuard.Direction.MakerSellsBtc,
+            SIZE + 1,
+            uint64(oracleE8 * 95 / 100),
+            uint64(oracleE8 * 105 / 100),
+            uint40(block.timestamp + 1 days)
+        );
+    }
+
+    function test_RevertWhen_SameTargetIdWithDifferentBand() public {
+        _setTarget(IHedgeGuard.Direction.MakerSellsBtc, SIZE);
+        vm.prank(hedger);
+        vm.expectRevert(abi.encodeWithSelector(HedgeGuard.HedgeGuard__TargetIdConflict.selector, _currentId()));
+        guard.setTarget(
+            maker,
+            _currentId(),
+            IHedgeGuard.Direction.MakerSellsBtc,
+            SIZE,
+            uint64(oracleE8 * 90 / 100),
+            uint64(oracleE8 * 105 / 100),
+            uint40(block.timestamp + 1 days)
+        );
+    }
+
+    function test_NewTargetIdRefillsAfterPartialFill() public {
+        IHedgeGuard.Direction direction = IHedgeGuard.Direction.MakerSellsBtc;
+        _setTarget(direction, SIZE);
+        _swapAsRouter(_query(direction), _registers(direction, 2e8, _priceAt(0)));
+
+        _setTargetWithId(keccak256("refill"), direction, SIZE, uint40(block.timestamp + 1 days));
+        assertEq(guard.targetOf(maker).remaining, SIZE);
+    }
+
+    function test_RevertWhen_SetTargetZeroId() public {
+        vm.prank(hedger);
+        vm.expectRevert(HedgeGuard.HedgeGuard__InvalidTarget.selector);
+        guard.setTarget(maker, bytes32(0), IHedgeGuard.Direction.MakerSellsBtc, SIZE, 1, 2, uint40(block.timestamp + 1));
     }
 
     function testFuzz_RevertWhen_OracleConfigByNonOwner(address caller) public {
