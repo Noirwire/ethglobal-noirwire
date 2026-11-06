@@ -86,9 +86,14 @@ Amounts aim for an account value that gives the hedge leverage target (`HEDGE_LE
 
 ## Configuration
 
-See `.env.example`. Keys only come from the environment; this service never reads key files. Key variables: `HEDGER_MODE` (`mock|testnet`), `FILL_SOURCE` (`replay|tape`), `HEDGE_ENABLED`, `BOOK_MARKET`, `BOOK_API_URL`, `HL_ACCOUNT_ADDRESS`, `HL_AGENT_PRIVATE_KEY`, `DEADBAND_BTC8`, `MAX_ORDER_BTC8`, `PRICE_BAND_BPS`, `SOFT_LIMIT_USD`, `HARD_LIMIT_USD`, `HTTP_PORT`.
+See `.env.example`. Keys only come from the environment; this service never reads key files. Key variables: `HEDGER_MODE` (`mock|testnet`), `FILL_SOURCE` (`replay|tape`), `HEDGE_ENABLED`, `BOOK_MARKET`, `BOOK_API_URL`, `HOUSE_MAKER_TAG`, `HL_ACCOUNT_ADDRESS`, `HL_AGENT_PRIVATE_KEY`, `DEADBAND_BTC8`, `MAX_ORDER_BTC8`, `PRICE_BAND_BPS`, `SOFT_LIMIT_USD`, `HARD_LIMIT_USD`, `HTTP_PORT`.
 
-The tape source polls `GET {BOOK_API_URL}/v1/tape?market=NBTC-PERP&since=<cursor>` and persists the cursor in `CURSOR_FILE`. The row shape is isolated in `mapTapeRow` (`src/sources/tape.ts`).
+The tape source (`FILL_SOURCE=tape`) reads the venue API at `BOOK_API_URL` (off mainnet only), validating every response with zod:
+
+- `GET /v1/maker/position?market=NBTC-PERP` returns the maker's signed position (long positive). This is the authoritative maker position the controller hedges, so a missed fill can never desync the hedge. Fills are not integrated into it in this mode.
+- `GET /v1/tape?market=NBTC-PERP&limit=500` returns the most recent fills. There is no cursor parameter: rows are deduplicated by `sequence` and the last seen sequence is persisted in `CURSOR_FILE`. A row is the house maker's when its `makerTag` equals `HOUSE_MAKER_TAG` (a decimal string); the maker side is the opposite of `takerSide`, and the `fillId` is `<market>:<sequence>`. These rows only feed the event stream. With `HOUSE_MAKER_TAG` unset no fill events are emitted, but hedging from the polled position still works.
+
+A 503 or a network error on either call counts as a blind maker read: no hedge orders are placed (`hold:maker-position-unknown`), the poll is not counted as successful, and the status goes `blind` after `BLIND_AFTER_MS` (quote policy reduce-only for a maker with a position). It is never read as position 0. A 404 or 400 raises `FillSourceConfigError` (wrong `BOOK_API_URL` or `BOOK_MARKET`, or no maker running that market) and is logged on every tick. Shapes live in `src/sources/tape.ts`. The mock and replay demo still integrates scripted fills as before.
 
 ## Running against Hyperliquid testnet
 

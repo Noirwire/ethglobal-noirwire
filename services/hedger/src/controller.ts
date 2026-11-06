@@ -160,6 +160,7 @@ export class HedgeController {
   private makerPos8: bigint;
   private lastVenue: VenueRead | null = null;
   private lastReference: ReferencePrice | null = null;
+  private makerBlind = false;
   private lastAqua8 = 0n;
   private lastConfirmedAt: number | null = null;
   private lastFillPollOkAt: number | null = null;
@@ -188,6 +189,7 @@ export class HedgeController {
     this.newCloid = deps.newCloid ?? randomCloid;
     this.log = deps.log ?? (() => {});
     this.makerPos8 = this.config.initialMakerPosition8;
+    this.makerBlind = deps.fillSource.reportsPosition === true;
     this.current = initialSnapshot(this.config.market, this.config.enabled, this.config.initialMakerPosition8);
   }
 
@@ -233,6 +235,7 @@ export class HedgeController {
     this.started = true;
     this.state = replayJournal(this.journal.entries());
     this.makerPos8 = this.config.initialMakerPosition8;
+    if (this.fillSource.reportsPosition) return;
     for (const fill of this.state.fills.values()) this.makerPos8 += signedFillSize(fill);
   }
 
@@ -304,12 +307,17 @@ export class HedgeController {
     let processed = 0;
     try {
       const batch = await this.fillSource.poll();
+      if (batch.makerPosition8 !== undefined) {
+        this.makerPos8 = batch.makerPosition8;
+        this.makerBlind = false;
+      }
       for (const fill of batch.fills) {
         if (this.acceptFill(fill, now)) processed += 1;
       }
       await this.fillSource.commit(batch.cursor);
       this.lastFillPollOkAt = now;
     } catch (error) {
+      if (this.fillSource.reportsPosition) this.makerBlind = true;
       this.log(`fill source failed: ${String(error)}`);
     }
     return processed;
@@ -319,7 +327,7 @@ export class HedgeController {
     if (fill.market !== this.config.market) return false;
     if (this.state.fills.has(fill.fillId)) return false;
     this.record({ type: "fill", t: now, fill });
-    this.makerPos8 += signedFillSize(fill);
+    if (!this.fillSource.reportsPosition) this.makerPos8 += signedFillSize(fill);
     this.pendingFillIds.push(fill.fillId);
     this.bus.publish({ kind: "fill", at: new Date(now).toISOString(), fill });
     return true;
@@ -399,6 +407,7 @@ export class HedgeController {
   private holdReason(position: ResolvedPosition, now: number): string | null {
     if (!this.config.enabled) return "hold:disabled";
     if (this.manualHalt) return "hold:halted";
+    if (this.makerBlind) return "hold:maker-position-unknown";
     if (this.unresolvedCloids.length > 0) return "hold:unresolved-order";
     if (!position.confirmed) return "hold:awaiting-position-confirmation";
     if (now < this.throttle.backoffUntil) return "hold:backoff";

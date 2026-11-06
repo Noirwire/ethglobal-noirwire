@@ -64,12 +64,16 @@ export interface HedgeVenue {
   accountState(): Promise<AccountState>;
 }
 
+export class FillSourceConfigError extends Error {}
+
 export interface FillBatch {
   fills: MakerFill[];
   cursor: string;
+  makerPosition8?: bigint;
 }
 
 export interface FillSource {
+  readonly reportsPosition?: boolean;
   poll(): Promise<FillBatch>;
   commit(cursor: string): Promise<void>;
 }

@@ -85,6 +85,12 @@ describe("config parsing", () => {
     expect(() => parseConfig({ SOFT_LIMIT_USD: "500", HARD_LIMIT_USD: "100" })).toThrow(/SOFT_LIMIT_USD/);
   });
 
+  it("accepts an optional decimal house maker tag", () => {
+    expect(parseConfig({}).houseMakerTag).toBeUndefined();
+    expect(parseConfig({ HOUSE_MAKER_TAG: "123456789012345678901" }).houseMakerTag).toBe("123456789012345678901");
+    expect(() => parseConfig({ HOUSE_MAKER_TAG: "0xabc" })).toThrow(/HOUSE_MAKER_TAG/);
+  });
+
   it("keeps the hedge leverage target between 3x and 5x", () => {
     expect(() => parseConfig({ HEDGE_LEVERAGE_TARGET: "2" })).toThrow(ConfigError);
     expect(() => parseConfig({ HEDGE_LEVERAGE_TARGET: "6" })).toThrow(ConfigError);

@@ -15,6 +15,7 @@ const envSchema = z.object({
   BOOK_MARKET: z.string().default("NBTC-PERP"),
   HEDGE_COIN: z.string().default("BTC"),
   BOOK_API_URL: z.string().url().optional(),
+  HOUSE_MAKER_TAG: z.string().regex(/^\d+$/, "decimal string").optional(),
   REPLAY_FILE: z.string().optional(),
   HL_ACCOUNT_ADDRESS: address.optional(),
   HL_AGENT_PRIVATE_KEY: privateKey.optional(),
@@ -44,6 +45,7 @@ export type HedgerConfig = {
   bookMarket: string;
   hedgeCoin: string;
   bookApiUrl: string | undefined;
+  houseMakerTag: string | undefined;
   replayFile: string | undefined;
   accountAddress: `0x${string}` | undefined;
   agentPrivateKey: `0x${string}` | undefined;
@@ -101,6 +103,7 @@ export function parseConfig(env: Record<string, string | undefined>): HedgerConf
     bookMarket: raw.BOOK_MARKET,
     hedgeCoin: raw.HEDGE_COIN,
     bookApiUrl: raw.BOOK_API_URL,
+    houseMakerTag: raw.HOUSE_MAKER_TAG,
     replayFile: raw.REPLAY_FILE,
     accountAddress: raw.HL_ACCOUNT_ADDRESS as `0x${string}` | undefined,
     agentPrivateKey: raw.HL_AGENT_PRIVATE_KEY as `0x${string}` | undefined,

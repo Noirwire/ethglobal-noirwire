@@ -38,6 +38,7 @@ function buildFillSource(config: HedgerConfig): ReplayFillSource | TapeFillSourc
     return new TapeFillSource({
       bookApiUrl: config.bookApiUrl ?? "",
       market: config.bookMarket,
+      houseMakerTag: config.houseMakerTag,
       cursorFile: config.cursorFile,
     });
   }
