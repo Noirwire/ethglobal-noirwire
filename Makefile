@@ -12,6 +12,7 @@ ARBITRUM_RPC_URL ?= https://arb1.arbitrum.io/rpc
 FORK_BLOCK ?=
 HEDGER_PORT ?= 8701
 BRIDGE_PORT ?= 8702
+AQUA_HTTP_PORT ?= 8703
 WEB_PORT    ?= 3000
 
 # Anvil's published default account #0. Valid on throwaway local chains only.
@@ -110,8 +111,9 @@ bridge-up: ## Bridge HTTP API (8702, override BRIDGE_PORT) in local mode: arc-lo
 	@mkdir -p $(RUN)
 	$(call spawn,bridge,$(ROOT)/services/bridge,BRIDGE_NETWORK=local ARC_RPC_URL=$(ARC_RPC) BRIDGE_PORT=$(BRIDGE_PORT) BRIDGE_JOURNAL=$(RUN)/bridge-transfers.ndjson node_modules/.bin/tsx src/main.ts)
 
-aqua-up: ## Aqua taker bot against the fork (ship, then fill in chunks); runs to completion in the background
+aqua-up: ## Aqua taker bot against the fork (ship, then fill in chunks) plus the inventory API (8703, override AQUA_HTTP_PORT)
 	$(call spawn,aqua,$(ROOT)/services/aqua-taker,AQUA_FORK_RPC=$(FORK_RPC) node_modules/.bin/tsx src/cli.ts bot)
+	$(call spawn,aqua-api,$(ROOT)/services/aqua-taker,AQUA_FORK_RPC=$(FORK_RPC) AQUA_HTTP_PORT=$(AQUA_HTTP_PORT) node_modules/.bin/tsx src/cli.ts serve)
 
 web-up: ## Next.js dev server for apps/web (port 3000, override with WEB_PORT)
 	$(call spawn,web,$(ROOT)/apps/web,node_modules/.bin/next dev --port $(WEB_PORT))

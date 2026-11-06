@@ -7,7 +7,8 @@
     "check-types": "tsc --noEmit",
     "test": "vitest run",
     "start": "tsx src/cli.ts",
-    "demo": "tsx src/cli.ts demo"
+    "demo": "tsx src/cli.ts demo",
+    "serve": "tsx src/cli.ts serve"
   },
   "dependencies": {
     "@1inch/aqua-sdk": "0.4.0",

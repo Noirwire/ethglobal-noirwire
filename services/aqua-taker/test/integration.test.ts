@@ -1,4 +1,5 @@
 import { flowEvent } from "@noirwire/shared";
+import type { AddressInfo } from "node:net";
 import { type Address, encodeFunctionData } from "viem";
 import { describe, expect, it } from "vitest";
 import { testAggregatorAbi } from "../src/abis.ts";
@@ -7,7 +8,9 @@ import { runTakerBot } from "../src/bot.ts";
 import { createForkClients } from "../src/chain.ts";
 import { loadConfig } from "../src/config.ts";
 import { DEMO_FUNDING, runDemo } from "../src/demo.ts";
-import { USDC, WBTC, deployHedgeGuard, fundAccounts, setTokenBalance } from "../src/fork-setup.ts";
+import { USDC, WBTC, deployHedgeGuard, fundAccounts, setTokenBalance, tokenBalance } from "../src/fork-setup.ts";
+import { INVENTORY_PATH, createInventoryReader, createInventoryServer } from "../src/inventory-server.ts";
+import { parseAquaInventory } from "../../../workflows/cre/src/sources.ts";
 import { AquaMaker } from "../src/maker.ts";
 import { AquaTaker } from "../src/taker.ts";
 import { sendCall } from "../src/tx.ts";
@@ -150,4 +153,32 @@ describe.skipIf(forkRpc === undefined)("aqua fork integration", () => {
     const allowed = await taker.swapAllowedDirection(shipped.order, maker.address, BTC / 100n);
     expect(allowed.kind).toBe("filled");
   });
+
+  it("serves the maker wallet balances, not wallet plus virtual, over HTTP", async () => {
+    const { clients, maker, taker } = await bootstrap();
+    const shipped = await maker.ship({ wbtcInventory8: BTC, salt: 31n });
+    await maker.setTarget({ direction: Direction.MakerSellsBtc, size8: BTC / 2n, ttlSeconds: 3600n });
+    expect((await taker.swapAllowedDirection(shipped.order, maker.address, BTC / 100n)).kind).toBe("filled");
+
+    const server = createInventoryServer(createInventoryReader(clients));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const response = await fetch(`http://127.0.0.1:${port}${INVENTORY_PATH}`);
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      const inventory = parseAquaInventory(text);
+      const block = await clients.publicClient.getBlock();
+      expect(inventory.usdc6).toBe(await tokenBalance(clients, USDC, maker.address));
+      expect(inventory.wbtcE8).toBe(await tokenBalance(clients, WBTC, maker.address));
+      expect(inventory.wbtcE8).toBe(DEMO_FUNDING.makerWbtc8 - (await takerGain(clients, taker.address)));
+      expect(inventory.observedAtMs).toBe(Number(block.timestamp) * 1000);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 });
+
+async function takerGain(clients: ReturnType<typeof createForkClients>, taker: Address): Promise<bigint> {
+  return (await tokenBalance(clients, WBTC, taker)) - DEMO_FUNDING.takerWbtc8;
+}

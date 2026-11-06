@@ -107,7 +107,7 @@ Transfer states (`TransferState`): `requested`, `burned`, `attested`, `minted`, 
 
 ## Aqua inventory
 
-The Aqua leg runs on a local fork of Arbitrum One with seeded WBTC and USDC in the maker wallet. Aqua tracks virtual balances while tokens stay in that wallet, so NAV reads the maker wallet's token balances plus the strategy's virtual balances from the official registry.
+The Aqua leg runs on a local fork of Arbitrum One with seeded WBTC and USDC in the maker wallet. Aqua tracks virtual balances while tokens stay in that wallet: a virtual balance is a claim on tokens the wallet already holds, and tokens leave only when a swap fills. NAV therefore counts the maker wallet's USDC and WBTC balances only, read at one block, and never adds the virtual balances on top. `GET /v1/aqua/inventory` on the Aqua service serves `{usdc6, wbtcE8, observedAt}` with `observedAt` the block timestamp.
 
 ## Flow events
 
