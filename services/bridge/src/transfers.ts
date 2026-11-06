@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   bridgeTransfer,
@@ -161,7 +161,8 @@ export class TransferStore {
 
   beginBurn(transferId: string): void {
     if (!this.canBurn(transferId)) throw new IllegalTransition(`${transferId} may not be burned again`);
-    this.setMeta(transferId, { burnAttempted: true });
+    const record = this.require(transferId);
+    this.commit("update", { transfer: record.transfer, meta: { ...record.meta, burnAttempted: true } }, true);
   }
 
   transition(transferId: string, to: TransferState, patch: TransferPatch = {}): BridgeTransfer {
@@ -246,12 +247,14 @@ export class TransferStore {
     return record;
   }
 
-  private commit(op: JournalEntry["op"], record: TransferRecord): void {
+  private commit(op: JournalEntry["op"], record: TransferRecord, durable = false): void {
     this.apply(record);
     const entry: JournalEntry = { seq: ++this.seq, at: this.now().toISOString(), op, record };
     if (this.journalPath) {
       mkdirSync(dirname(this.journalPath), { recursive: true });
-      appendFileSync(this.journalPath, `${JSON.stringify(entry)}\n`);
+      const line = `${JSON.stringify(entry)}\n`;
+      if (durable) appendDurably(this.journalPath, line);
+      else appendFileSync(this.journalPath, line);
     }
     for (const listener of this.listeners) listener(record.transfer);
   }
@@ -277,6 +280,16 @@ export class TransferStore {
       this.apply({ transfer: bridgeTransfer.parse(entry.record.transfer), meta: entry.record.meta });
       this.seq = Math.max(this.seq, entry.seq);
     }
+  }
+}
+
+function appendDurably(path: string, line: string): void {
+  const fd = openSync(path, "a");
+  try {
+    writeSync(fd, line);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
   }
 }
 
