@@ -1,10 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { flowEvent, topUpIntent, type BridgeTransfer, type FlowEvent } from "@noirwire/shared";
+import { z } from "zod";
 import { IntentRejected, type TreasuryExecutor } from "./executor.ts";
 import type { TransferStore } from "./transfers.ts";
 
-export const BRIDGE_PORT = 8702;
+export const DEFAULT_BRIDGE_PORT = 8702;
+
+export type DevDeposit = (amount: bigint | undefined) => { transfers: BridgeTransfer[]; beneficiary: string };
+
+const devDepositBody = z.object({ amount: z.string().regex(/^[1-9]\d*$/).optional() });
 
 const ALLOW_ORIGIN = { "access-control-allow-origin": "*" };
 
@@ -16,14 +21,15 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 async function readBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const text = Buffer.concat(chunks).toString("utf8");
+  return text.trim() ? JSON.parse(text) : {};
 }
 
 export function transferEvent(transfer: BridgeTransfer): FlowEvent {
   return { kind: "transfer", at: transfer.updatedAt, transfer };
 }
 
-export function createBridgeServer(store: TransferStore, executor: TreasuryExecutor): Server {
+export function createBridgeServer(store: TransferStore, executor: TreasuryExecutor, devDeposit?: DevDeposit): Server {
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     try {
@@ -46,6 +52,12 @@ export function createBridgeServer(store: TransferStore, executor: TreasuryExecu
         const transfers = executor.submit(parsed.data);
         void executor.tick();
         return json(res, 202, { transfers });
+      }
+      if (req.method === "POST" && url.pathname === "/v1/dev/deposit" && devDeposit) {
+        const parsed = devDepositBody.safeParse(await readBody(req));
+        if (!parsed.success) return json(res, 400, { error: parsed.error.message });
+        const result = devDeposit(parsed.data.amount === undefined ? undefined : BigInt(parsed.data.amount));
+        return json(res, 202, result);
       }
       if (req.method === "GET" && url.pathname === "/events") {
         res.writeHead(200, {

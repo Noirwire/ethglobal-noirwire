@@ -2,7 +2,8 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { LOCAL_DEPLOYMENT, localChainReachable, runLocalE2e } from "../src/local-e2e.ts";
+import { LOCAL_DEPLOYMENT, localChainReachable } from "../src/local-arc.ts";
+import { runLocalE2e } from "../src/local-e2e.ts";
 
 const PORT = 8548;
 const RPC = `http://127.0.0.1:${PORT}`;

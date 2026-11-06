@@ -105,10 +105,10 @@ deploy-local: ## Deploy vault contracts to arc-local (writes contracts/vault/dep
 hedger-up: ## Hedger in mock mode with its HTTP server kept alive (port 8701)
 	$(call spawn,hedger,$(ROOT)/services/hedger,HEDGER_MODE=mock FILL_SOURCE=replay KEEP_ALIVE=1 HTTP_PORT=$(HEDGER_PORT) node_modules/.bin/tsx src/main.ts)
 
-bridge-up: ## Bridge HTTP API (8702) wired to arc-local with the anvil key and the local vault deployment; needs deploy-local
+bridge-up: ## Bridge HTTP API (8702, override BRIDGE_PORT) in local mode: arc-local deployment, local test attester, POST /v1/dev/deposit; needs deploy-local
 	@test -f contracts/vault/deployments/local.json || { echo "run make deploy-local first"; exit 1; }
 	@mkdir -p $(RUN)
-	$(call spawn,bridge,$(ROOT)/services/bridge,ARC_RPC_URL=$(ARC_RPC) ARC_OPERATOR_KEY=$(ANVIL_KEY) HOOK_EXECUTOR=$(LOCAL_HOOK_EXECUTOR) ARC_USDC=$(LOCAL_USDC) BRIDGE_JOURNAL=$(RUN)/bridge-transfers.ndjson node_modules/.bin/tsx src/main.ts)
+	$(call spawn,bridge,$(ROOT)/services/bridge,BRIDGE_NETWORK=local ARC_RPC_URL=$(ARC_RPC) BRIDGE_PORT=$(BRIDGE_PORT) BRIDGE_JOURNAL=$(RUN)/bridge-transfers.ndjson node_modules/.bin/tsx src/main.ts)
 
 aqua-up: ## Aqua taker bot against the fork (ship, then fill in chunks); runs to completion in the background
 	$(call spawn,aqua,$(ROOT)/services/aqua-taker,AQUA_FORK_RPC=$(FORK_RPC) node_modules/.bin/tsx src/cli.ts bot)

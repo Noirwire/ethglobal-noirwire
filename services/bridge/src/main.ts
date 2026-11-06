@@ -1,61 +1,27 @@
-import { readFileSync } from "node:fs";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { NETWORKS, type TransferRoute } from "@noirwire/shared";
-import { bytesToHex, createPublicClient, createWalletClient, defineChain, http, type Hex } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { ARC_TESTNET_USDC, CIRCLE_TESTNET, SOLANA_DEVNET_USDC_MINT } from "./addresses.ts";
-import { ArcHypercoreAdapter, ArcSolanaAdapter, SolanaArcAdapter } from "./adapters.ts";
-import { EvmDriver } from "./evm.ts";
+import { LOCAL_NETWORKS, type TransferRoute } from "@noirwire/shared";
 import { TreasuryExecutor, type ExecutorConfig, type RouteAdapter } from "./executor.ts";
-import { HyperliquidInfoReader } from "./hyperliquid.ts";
-import { IrisClient } from "./iris.ts";
-import { BRIDGE_PORT, createBridgeServer, IntentFileWatcher } from "./server.ts";
-import { SolanaDriver } from "./solana.ts";
+import { IrisClient, type Attester } from "./iris.ts";
+import { DEFAULT_DEV_DEPOSIT, setupLocalArc } from "./local-arc.ts";
+import { createBridgeServer, DEFAULT_BRIDGE_PORT, IntentFileWatcher, type DevDeposit } from "./server.ts";
+import { wireTestnet } from "./testnet.ts";
 import { TransferStore } from "./transfers.ts";
 
 const TICK_INTERVAL_MS = 5000;
 const STUCK_TIMEOUT_MS = 30 * 60_000;
 const STUCK_RETRY_MS = 60_000;
-const VAULT_HOOK_DEADLINE_SECONDS = 3600;
 const DEFAULT_DAILY_CAP = "5000000000";
 const DEFAULT_PER_TRANSFER_CAP = "1000000000";
-const DEFAULT_HYPERCORE_MAX_FEE = "300000";
-const DEFAULT_SOLANA_MAX_FEE = "100000";
+const DEFAULT_LOCAL_STEP_MS = "1000";
 
 function env(name: string): string | undefined {
   const value = process.env[name];
   return value && value.length > 0 ? value : undefined;
 }
 
-function required(name: string): string {
-  const value = env(name);
-  if (!value) throw new Error(`${name} is required`);
-  return value;
-}
+const network = env("BRIDGE_NETWORK") ?? "testnet";
+if (network !== "testnet" && network !== "local") throw new Error(`BRIDGE_NETWORK must be testnet or local, got ${network}`);
 
 const store = new TransferStore(env("BRIDGE_JOURNAL") ?? "./data/transfers.ndjson");
-const iris = new IrisClient(env("IRIS_URL"));
-
-const arcChain = defineChain({
-  id: NETWORKS.arcTestnet.chainId,
-  name: "Arc Testnet",
-  nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
-  rpcUrls: { default: { http: [env("ARC_RPC_URL") ?? NETWORKS.arcTestnet.rpcUrl] } },
-});
-
-const arcOperator = privateKeyToAccount(required("ARC_OPERATOR_KEY") as Hex);
-const hookExecutor = env("HOOK_EXECUTOR") as Hex | undefined;
-const evm = new EvmDriver(
-  createPublicClient({ chain: arcChain, transport: http() }),
-  createWalletClient({ account: arcOperator, chain: arcChain, transport: http() }),
-  {
-    usdc: (env("ARC_USDC") as Hex | undefined) ?? ARC_TESTNET_USDC,
-    tokenMessenger: CIRCLE_TESTNET.tokenMessengerV2,
-    messageTransmitter: CIRCLE_TESTNET.messageTransmitterV2,
-    hookExecutor,
-  },
-);
-
 const adapters: Partial<Record<TransferRoute, RouteAdapter>> = {};
 const config: ExecutorConfig = {
   routes: {},
@@ -66,48 +32,36 @@ const config: ExecutorConfig = {
   stuckRetryMs: STUCK_RETRY_MS,
 };
 
-const hyperCoreRecipient = env("HYPERCORE_RECIPIENT") as Hex | undefined;
-if (hyperCoreRecipient) {
-  adapters["arc-hypercore"] = new ArcHypercoreAdapter(evm, iris, {
-    forwarder: CIRCLE_TESTNET.hyperEvmCctpForwarder,
-    recipient: hyperCoreRecipient,
-    reader: new HyperliquidInfoReader(NETWORKS.hyperliquidTestnetApi.infoUrl),
+let attester: Attester;
+let devDeposit: DevDeposit | undefined;
+let executor: TreasuryExecutor;
+
+if (network === "local") {
+  const rpcUrl = env("ARC_RPC_URL") ?? LOCAL_NETWORKS.arcLocal.rpcUrl;
+  const arc = await setupLocalArc(rpcUrl, {
+    deployIfMissing: false,
+    stepDelayMs: Number(env("BRIDGE_LOCAL_STEP_MS") ?? DEFAULT_LOCAL_STEP_MS),
   });
-  config.routes["arc-hypercore"] = {
-    destination: hyperCoreRecipient,
-    maxFee: BigInt(env("HYPERCORE_MAX_FEE") ?? DEFAULT_HYPERCORE_MAX_FEE),
+  attester = arc.attester;
+  adapters["solana-arc"] = arc.adapter;
+  config.routes["solana-arc"] = arc.route;
+  config.allowlist = new Set([...config.allowlist, arc.hookExecutor.toLowerCase()]);
+  devDeposit = (amount) => {
+    const transfers = executor.submit(arc.depositIntent(amount ?? DEFAULT_DEV_DEPOSIT));
+    for (const transfer of transfers) void executor.advance(transfer.transferId);
+    return { transfers, beneficiary: arc.beneficiary };
   };
+  console.log(`bridge local mode: chain ${arc.chainId} at ${rpcUrl}, HookExecutor ${arc.hookExecutor}, attester local-test-attester`);
+} else {
+  const iris = new IrisClient(env("IRIS_URL"));
+  attester = iris;
+  wireTestnet(env, iris, adapters, config);
 }
 
-const solanaKeyPath = env("SOLANA_KEYPAIR_PATH");
-if (solanaKeyPath) {
-  const keypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(solanaKeyPath, "utf8")) as number[]));
-  const solana = new SolanaDriver(
-    new Connection(env("SOLANA_RPC_URL") ?? NETWORKS.solanaDevnet.rpcUrl, "confirmed"),
-    keypair,
-    new PublicKey(SOLANA_DEVNET_USDC_MINT),
-  );
-  const makerTokenAccount = solana.tokenAccount();
-  adapters["arc-solana"] = new ArcSolanaAdapter(evm, solana, { makerTokenAccount });
-  config.routes["arc-solana"] = { destination: makerTokenAccount.toBase58(), maxFee: BigInt(env("SOLANA_MAX_FEE") ?? DEFAULT_SOLANA_MAX_FEE) };
-  if (hookExecutor) {
-    const beneficiary = (env("RETURN_BENEFICIARY") as Hex | undefined) ?? arcOperator.address;
-    adapters["solana-arc"] = new SolanaArcAdapter(solana, evm, {
-      hookExecutor,
-      beneficiary,
-      solanaDepositor: bytesToHex(keypair.publicKey.toBytes()),
-      deadlineSeconds: VAULT_HOOK_DEADLINE_SECONDS,
-    });
-    config.routes["solana-arc"] = {
-      destination: hookExecutor,
-      maxFee: BigInt(env("SOLANA_ARC_MAX_FEE") ?? DEFAULT_SOLANA_MAX_FEE),
-    };
-  }
-}
-
-const executor = new TreasuryExecutor(store, iris, adapters, config);
-const server = createBridgeServer(store, executor);
-server.listen(BRIDGE_PORT, () => console.log(`bridge listening on ${BRIDGE_PORT}`));
+executor = new TreasuryExecutor(store, attester, adapters, config);
+const port = Number(env("BRIDGE_PORT") ?? DEFAULT_BRIDGE_PORT);
+const server = createBridgeServer(store, executor, devDeposit);
+server.listen(port, () => console.log(`bridge listening on ${port}`));
 
 const intentFile = env("INTENT_FILE");
 const watcher = intentFile ? new IntentFileWatcher(intentFile, executor) : undefined;

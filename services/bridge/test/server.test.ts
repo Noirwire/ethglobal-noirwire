@@ -75,6 +75,26 @@ describe("HTTP API", () => {
     expect((await post({ ...intent, intentId: word(6), amount: "999999999" })).status).toBe(422);
   });
 
+  it("serves /v1/dev/deposit only when a dev deposit handler is wired", async () => {
+    const { store, executor, server } = setup();
+    const plain = await listen(server);
+    expect((await fetch(`${plain}/v1/dev/deposit`, { method: "POST" })).status).toBe(404);
+
+    const seen: (bigint | undefined)[] = [];
+    const dev = createBridgeServer(store, executor, (amount) => {
+      seen.push(amount);
+      return { transfers: [], beneficiary: "0xabc" };
+    });
+    const base = await listen(dev);
+    const empty = await fetch(`${base}/v1/dev/deposit`, { method: "POST" });
+    expect(empty.status).toBe(202);
+    expect(((await empty.json()) as { beneficiary: string }).beneficiary).toBe("0xabc");
+    const sized = await fetch(`${base}/v1/dev/deposit`, { method: "POST", body: JSON.stringify({ amount: "2000000" }) });
+    expect(sized.status).toBe(202);
+    expect((await fetch(`${base}/v1/dev/deposit`, { method: "POST", body: JSON.stringify({ amount: "-1" }) })).status).toBe(400);
+    expect(seen).toEqual([undefined, 2_000_000n]);
+  });
+
   it("streams transfer FlowEvents over SSE", async () => {
     const { server, store } = setup();
     const base = await listen(server);
