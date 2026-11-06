@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(/.keys/**)",
+      "Edit(/.keys/**)",
+      "Bash(security find-generic-password *)",
+      "Bash(security find-internet-password *)",
+      "Bash(security dump-keychain *)",
+      "Bash(security export *)",
+      "Bash(cat .keys*)",
+      "Bash(cat ./.keys*)",
+      "Bash(* .keys*)",
+      "Bash(*/.keys*)",
+      "Bash(*scripts/keychain.sh*)"
+    ]
+  }
+}

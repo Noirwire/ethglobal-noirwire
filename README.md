@@ -128,6 +128,17 @@ Targets that touch a public testnet (`deploy-arc-testnet`, `hedger-testnet-up`, 
 
 Default local ports: hedger 8701, bridge 8702, Aqua inventory API 8703, web 3000.
 
+### Keys
+
+Testnet signing keys live in the macOS login Keychain (service `noirwire-ethglobal`, one entry per role: deployer, operator, relayer, hl-agent, taker, solana-operator, solana-depositor). They are never printed and never written to disk. The testnet targets read only the keys they need straight into the service's environment, and Solana keys are handed over as a `/dev/fd` path, not a file.
+
+```sh
+make keys-init       # run by the human: generate a fresh key per role; prints role and address only (FORCE=1 replaces)
+make keys-addresses  # role and public address, never the key
+```
+
+`make keys-init` passes each key to the `security` tool on its command line for a moment, which is fine on a single-user Mac. The old plaintext `.keys/` folder is legacy: `make keys-migrate` imports it once, after which it can be deleted. `.claude/settings.json` denies AI assistants access to `.keys/` and to Keychain reads.
+
 ## Safety and trust
 
 - **Trust labels.** Every number in the app carries its source: `onchain`, `venue-api` or `operator-supplied`. Every bridge transfer carries its attester: `circle-iris` or `local-test-attester`. A transfer signed by the local test attester is never shown as a Circle transfer.

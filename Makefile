@@ -25,6 +25,10 @@ LOCAL_USDC = $(shell sed -n 's/.*"usdc": "\(0x[0-9a-fA-F]*\)".*/\1/p' $(LOCAL_DE
 
 CRE_BIN ?= $(HOME)/.cre/bin/cre
 
+KEYCHAIN_SERVICE ?= noirwire-ethglobal
+export KEYCHAIN_SERVICE
+KEYS := bash $(ROOT)/scripts/keychain.sh
+
 CHAIN_ID_CALL = curl -s -m 3 -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}'
 
 # spawn <name> <dir> <command>: run a command in the background, record its PID and log under .run/.
@@ -60,7 +64,8 @@ endef
 
 .PHONY: help install build test check contracts-build chains-up solana-up deploy-local \
 	hedger-up bridge-up aqua-up web-up up down status demo cre-simulate \
-	deploy-arc-testnet hedger-testnet-up bridge-testnet-up _require-testnet
+	deploy-arc-testnet hedger-testnet-up bridge-testnet-up _require-testnet \
+	keys-init keys-addresses keys-migrate
 
 help: ## Show this list
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-20s %s\n", $$1, $$2}'
@@ -163,13 +168,20 @@ cre-simulate: ## CRE nav-attestor simulation (needs cre login and the Arc fork o
 _require-testnet:
 	@test "$(CONFIRM)" = "testnet" || { echo "refusing: this target touches a public testnet. Re-run with CONFIRM=testnet"; exit 1; }
 
-deploy-arc-testnet: _require-testnet ## TESTNET (CONFIRM=testnet): dry run of the Arc testnet deploy; add BROADCAST=1 to send. Needs DEPLOYER_ACCOUNT and DEPLOYER_ADDRESS
-	@test -n "$(DEPLOYER_ACCOUNT)" -a -n "$(DEPLOYER_ADDRESS)" || { echo "set DEPLOYER_ACCOUNT (foundry keystore name) and DEPLOYER_ADDRESS"; exit 1; }
-	cd contracts/vault && forge script script/DeployArcTestnet.s.sol --rpc-url https://rpc.testnet.arc.network \
-		--account $(DEPLOYER_ACCOUNT) --sender $(DEPLOYER_ADDRESS) $(if $(BROADCAST),--broadcast)
+deploy-arc-testnet: _require-testnet ## TESTNET (CONFIRM=testnet): dry run of the Arc testnet deploy with the Keychain deployer key; add BROADCAST=1 to send. The key is on forge's argv for the run
+	$(KEYS) run -e DEPLOYER_KEY=deployer -- bash -c 'cd contracts/vault && exec forge script script/DeployArcTestnet.s.sol --rpc-url https://rpc.testnet.arc.network --private-key "$$DEPLOYER_KEY" $(if $(BROADCAST),--broadcast)'
 
-hedger-testnet-up: _require-testnet ## TESTNET (CONFIRM=testnet): hedger against Hyperliquid testnet; needs HL_ACCOUNT_ADDRESS, HL_AGENT_PRIVATE_KEY, BOOK_API_URL in the environment
-	$(call spawn,hedger-testnet,$(ROOT)/services/hedger,HEDGER_MODE=testnet FILL_SOURCE=tape HEDGE_ENABLED=$${HEDGE_ENABLED:-0} node_modules/.bin/tsx src/main.ts)
+hedger-testnet-up: _require-testnet ## TESTNET (CONFIRM=testnet): hedger against Hyperliquid testnet, agent key from the Keychain (hl-agent); needs HL_ACCOUNT_ADDRESS, BOOK_API_URL in the environment
+	$(call spawn,hedger-testnet,$(ROOT)/services/hedger,$(KEYS) run -e HL_AGENT_PRIVATE_KEY=hl-agent -- env HEDGER_MODE=testnet FILL_SOURCE=tape HEDGE_ENABLED=$${HEDGE_ENABLED:-0} node_modules/.bin/tsx src/main.ts)
 
-bridge-testnet-up: _require-testnet ## TESTNET (CONFIRM=testnet): bridge against Arc testnet and Solana devnet; needs ARC_OPERATOR_KEY, SOLANA_KEYPAIR_PATH, HOOK_EXECUTOR in the environment
-	$(call spawn,bridge-testnet,$(ROOT)/services/bridge,node_modules/.bin/tsx src/main.ts)
+bridge-testnet-up: _require-testnet ## TESTNET (CONFIRM=testnet): bridge against Arc testnet and Solana devnet, keys from the Keychain (operator, solana-operator); needs HOOK_EXECUTOR in the environment
+	$(call spawn,bridge-testnet,$(ROOT)/services/bridge,$(KEYS) run -e ARC_OPERATOR_KEY=operator -f SOLANA_KEYPAIR_PATH=solana-operator -- node_modules/.bin/tsx src/main.ts)
+
+keys-init: ## Generate a fresh key per role (deployer operator relayer hl-agent taker solana-operator solana-depositor) into the login Keychain; prints role and address only; FORCE=1 replaces. The key is on security's argv for a moment
+	$(KEYS) init
+
+keys-addresses: ## Print role and public address for every Keychain key (never the key)
+	$(KEYS) addresses
+
+keys-migrate: ## One time: import the legacy .keys/ files into the Keychain under the same roles, then print addresses; FORCE=1 replaces
+	$(KEYS) migrate
