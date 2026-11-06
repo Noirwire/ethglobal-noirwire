@@ -85,9 +85,11 @@ const fetchHyperliquid = (requester: HTTPSendRequester, url: string, user: strin
     ),
   );
 
+const compareIds = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
 const fetchTransfers = (requester: HTTPSendRequester, url: string): TransfersFlat => {
   const text = fetchText(requester, { url: `${url}/v1/transfers?state=in-flight`, method: "GET" }, "bridge transfers");
-  const transfers = parseTransfers(text).sort((a, b) => (a.transferId < b.transferId ? -1 : 1));
+  const transfers = parseTransfers(text).sort((a, b) => compareIds(a.transferId, b.transferId));
   return { json: JSON.stringify(transfers) };
 };
 
