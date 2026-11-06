@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.34;
+
+import {Script, console2} from "forge-std/Script.sol";
+import {VmSafe} from "forge-std/Vm.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ShareVault} from "src/ShareVault.sol";
+import {NavReceiver} from "src/NavReceiver.sol";
+import {HookExecutor} from "src/HookExecutor.sol";
+import {IMessageTransmitterV2} from "src/interfaces/IMessageTransmitterV2.sol";
+
+/// @notice Deploys the vault stack to Arc testnet against the real USDC, CCTP V2 and CRE forwarder.
+/// Run (do not broadcast without review):
+///   forge script script/DeployArcTestnet.s.sol --rpc-url https://rpc.testnet.arc.network --account <keystore> --sender <address>
+/// Keys come from a Foundry keystore, never from the environment. ADMIN defaults to the broadcasting
+/// EOA, which is acceptable on testnet only; a mainnet deployment must use a multisig admin and an audit.
+contract DeployArcTestnet is Script {
+    uint256 internal constant ARC_TESTNET_CHAIN_ID = 5_042_002;
+    uint256 internal constant DEFAULT_MOVE_CAP = 100_000e6;
+    string internal constant OUT_FILE = "deployments/arc-testnet.json";
+
+    address internal constant ARC_USDC = 0x3600000000000000000000000000000000000000;
+    address internal constant MESSAGE_TRANSMITTER_V2 = 0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275;
+    address internal constant TOKEN_MESSENGER_V2 = 0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA;
+    address internal constant CRE_KEYSTONE_FORWARDER = 0x76c9cf548b4179F8901cda1f8623568b58215E62;
+    address internal constant CRE_SIMULATION_FORWARDER = 0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1;
+
+    error DeployArcTestnet__WrongChain(uint256 chainId);
+
+    function run() external returns (ShareVault vault, NavReceiver receiver, HookExecutor executor) {
+        if (block.chainid != ARC_TESTNET_CHAIN_ID) revert DeployArcTestnet__WrongChain(block.chainid);
+
+        address admin = vm.envOr("ADMIN", msg.sender);
+        address operator = vm.envOr("OPERATOR", admin);
+        address treasury = vm.envAddress("TREASURY_EXECUTOR");
+        address feeRecipient = vm.envOr("FEE_RECIPIENT", admin);
+        address forwarder = vm.envOr("CRE_FORWARDER", CRE_KEYSTONE_FORWARDER);
+        address workflowOwner = vm.envAddress("WORKFLOW_OWNER");
+        bytes32 workflowId = vm.envOr("WORKFLOW_ID", bytes32(0));
+        bytes10 workflowName = bytes10(vm.envOr("WORKFLOW_NAME", bytes32(0)));
+        bytes32 solanaTokenMessenger = vm.envBytes32("SOLANA_TOKEN_MESSENGER");
+        bytes32 solanaUsdcMint = vm.envBytes32("SOLANA_USDC_MINT");
+
+        vm.startBroadcast();
+        vault = new ShareVault(IERC20(ARC_USDC), msg.sender, feeRecipient);
+        receiver = new NavReceiver(vault, forwarder, msg.sender);
+        executor = new HookExecutor(
+            IMessageTransmitterV2(MESSAGE_TRANSMITTER_V2),
+            IERC20(ARC_USDC),
+            vault,
+            solanaTokenMessenger,
+            solanaUsdcMint,
+            bytes32(uint256(uint160(TOKEN_MESSENGER_V2))),
+            msg.sender
+        );
+
+        receiver.setWorkflowIdentity(workflowId, workflowOwner, workflowName);
+        vault.setNavReceiver(address(receiver));
+        vault.setOperator(operator);
+        vault.setDestinationAllowed(treasury, true);
+        vault.setMoveCaps(DEFAULT_MOVE_CAP, DEFAULT_MOVE_CAP);
+        if (admin != msg.sender) {
+            vault.transferOwnership(admin);
+            receiver.transferOwnership(admin);
+            executor.transferOwnership(admin);
+        }
+        vm.stopBroadcast();
+
+        console2.log("ShareVault", address(vault));
+        console2.log("NavReceiver", address(receiver));
+        console2.log("HookExecutor", address(executor));
+        if (vm.isContext(VmSafe.ForgeContext.ScriptBroadcast)) _writeAddresses(vault, receiver, executor, forwarder);
+    }
+
+    function _writeAddresses(ShareVault vault, NavReceiver receiver, HookExecutor executor, address forwarder)
+        internal
+    {
+        string memory key = "arcTestnet";
+        vm.serializeString(key, "network", "arc-testnet");
+        vm.serializeUint(key, "chainId", block.chainid);
+        vm.serializeAddress(key, "usdc", ARC_USDC);
+        vm.serializeAddress(key, "shareVault", address(vault));
+        vm.serializeAddress(key, "navReceiver", address(receiver));
+        vm.serializeAddress(key, "hookExecutor", address(executor));
+        vm.serializeAddress(key, "messageTransmitterV2", MESSAGE_TRANSMITTER_V2);
+        vm.serializeAddress(key, "tokenMessengerV2", TOKEN_MESSENGER_V2);
+        string memory json = vm.serializeAddress(key, "creForwarder", forwarder);
+        vm.writeJson(json, OUT_FILE);
+    }
+}
