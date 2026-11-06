@@ -1,0 +1,16 @@
+{
+  "name": "@noirwire/aqua-contracts",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "lint": "solhint 'src/**/*.sol' 'script/**/*.sol' 'test/**/*.sol'",
+    "fork": "anvil --fork-url ${ARBITRUM_RPC_URL:-https://arb1.arbitrum.io/rpc} --fork-block-number ${FORK_BLOCK:-521723675} --port 8546 --chain-id 42161",
+    "analyze:aderyn": "npx -y @cyfrin/aderyn@0.6.8 .",
+    "analyze:slither": "slither ."
+  },
+  "devDependencies": {
+    "solhint": "^6.0.0"
+  }
+}
