@@ -1,0 +1,8 @@
+staging-settings:
+  account:
+    workflow-owner-address: "0x4F81978894a5f3e90Ba99067E7BEB8Aff8D7a890"
+  rpcs:
+    - chain-name: arc-testnet
+      url: http://127.0.0.1:8650
+    - chain-name: ethereum-testnet-sepolia-arbitrum-1
+      url: https://sepolia-rollup.arbitrum.io/rpc

@@ -13,3 +13,7 @@ minimumReleaseAgeExclude:
   - '@1inch/aqua-sdk@0.4.0'
   - '@1inch/sdk-core@0.2.0'
   - '@1inch/swap-vm-sdk@0.5.0'
+packageExtensions:
+  "@chainlink/cre-sdk":
+    dependencies:
+      typescript: 5.9.3

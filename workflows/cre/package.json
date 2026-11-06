@@ -1,0 +1,26 @@
+{
+  "name": "@noirwire/cre-workflow",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "bunx cre-setup",
+    "test": "vitest run",
+    "check-types": "tsc --noEmit",
+    "dev:stub": "bun run src/dev-stub.ts",
+    "dev:stub:margin": "bun run src/dev-stub.ts --scenario margin-low",
+    "simulate": "~/.cre/bin/cre workflow simulate nav-attestor --target staging-settings --non-interactive --trigger-index 0"
+  },
+  "dependencies": {
+    "@chainlink/cre-sdk": "1.23.0",
+    "@noirwire/shared": "workspace:*",
+    "viem": "2.57.16",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@chainlink/cre-sdk-javy-plugin": "1.7.0",
+    "@types/bun": "1.4.4",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.8"
+  }
+}
