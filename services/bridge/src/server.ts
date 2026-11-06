@@ -26,11 +26,15 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-async function readBody(req: IncomingMessage): Promise<unknown> {
+class BadRequest extends Error {}
+
+async function readBody<T>(req: IncomingMessage, schema: z.ZodType<T>): Promise<T> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
   const text = Buffer.concat(chunks).toString("utf8");
-  return text.trim() ? JSON.parse(text) : {};
+  const parsed = schema.safeParse(text.trim() ? JSON.parse(text) : {});
+  if (!parsed.success) throw new BadRequest(parsed.error.message);
+  return parsed.data;
 }
 
 const prepareBody = z.object({
@@ -46,15 +50,16 @@ export function transferEvent(transfer: BridgeTransfer): FlowEvent {
   return { kind: "transfer", at: transfer.updatedAt, transfer };
 }
 
-function depositError(res: ServerResponse, error: unknown): boolean {
-  if (error instanceof DepositUnavailable) json(res, 409, { error: error.message });
+function knownError(res: ServerResponse, error: unknown): boolean {
+  if (error instanceof BadRequest) json(res, 400, { error: error.message });
+  else if (error instanceof DepositUnavailable) json(res, 409, { error: error.message });
   else if (error instanceof TransactionNotFound) json(res, 404, { error: error.message });
   else if (error instanceof DepositRefused || error instanceof IntentRejected) json(res, 422, { error: error.message });
   else return false;
   return true;
 }
 
-export const MIN_API_TOKEN_LENGTH = 32;
+const MIN_API_TOKEN_LENGTH = 32;
 
 export function resolveApiToken(network: "testnet" | "local", value: string | undefined): string | undefined {
   if (value === undefined) {
@@ -102,30 +107,24 @@ export function createBridgeServer(
         return transfer ? json(res, 200, transfer) : json(res, 404, { error: "unknown transfer" });
       }
       if (req.method === "POST" && url.pathname === "/v1/intents") {
-        const parsed = topUpIntent.safeParse(await readBody(req));
-        if (!parsed.success) return json(res, 400, { error: parsed.error.message });
-        const transfers = executor.submit(parsed.data);
+        const transfers = executor.submit(await readBody(req, topUpIntent));
         void executor.tick();
         return json(res, 202, { transfers });
       }
       if (req.method === "POST" && url.pathname === "/v1/dev/deposit" && devDeposit) {
-        const parsed = devDepositBody.safeParse(await readBody(req));
-        if (!parsed.success) return json(res, 400, { error: parsed.error.message });
-        const result = devDeposit(parsed.data.amount === undefined ? undefined : BigInt(parsed.data.amount));
-        return json(res, 202, result);
+        const { amount } = await readBody(req, devDepositBody);
+        return json(res, 202, devDeposit(amount === undefined ? undefined : BigInt(amount)));
       }
       if (req.method === "GET" && url.pathname === "/v1/deposits/solana/status") {
         return json(res, 200, solanaDeposits.status());
       }
       if (req.method === "POST" && url.pathname === "/v1/deposits/solana/prepare") {
-        const parsed = prepareBody.safeParse(await readBody(req));
-        if (!parsed.success) return json(res, 400, { error: parsed.error.message });
-        return json(res, 200, await solanaDeposits.prepare({ ...parsed.data, amount: BigInt(parsed.data.amount) }));
+        const body = await readBody(req, prepareBody);
+        return json(res, 200, await solanaDeposits.prepare({ ...body, amount: BigInt(body.amount) }));
       }
       if (req.method === "POST" && url.pathname === "/v1/deposits/solana/submitted") {
-        const parsed = submittedBody.safeParse(await readBody(req));
-        if (!parsed.success) return json(res, 400, { error: parsed.error.message });
-        return json(res, 202, { transfer: await solanaDeposits.register(parsed.data.signature) });
+        const { signature } = await readBody(req, submittedBody);
+        return json(res, 202, { transfer: await solanaDeposits.register(signature) });
       }
       if (req.method === "GET" && url.pathname === "/events") {
         res.writeHead(200, {
@@ -141,7 +140,7 @@ export function createBridgeServer(
       }
       return json(res, 404, { error: "not found" });
     } catch (error) {
-      if (depositError(res, error)) return;
+      if (knownError(res, error)) return;
       return json(res, 500, { error: error instanceof Error ? error.message : "internal error" });
     }
   });

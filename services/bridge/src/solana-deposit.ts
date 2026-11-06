@@ -59,7 +59,7 @@ export class ConnectionReader implements SolanaReader {
   }
 }
 
-export type PreparedDeposit = {
+type PreparedDeposit = {
   transaction: string;
   blockhash: string;
   lastValidBlockHeight: number;
@@ -67,7 +67,7 @@ export type PreparedDeposit = {
   maxFee: string;
 };
 
-export type DepositStatus = { mode: "local" | "testnet"; available: boolean; reason?: string };
+type DepositStatus = { mode: "local" | "testnet"; available: boolean; reason?: string };
 
 export interface SolanaDepositApi {
   status(): DepositStatus;
@@ -94,7 +94,7 @@ export class UnavailableDeposits implements SolanaDepositApi {
   }
 }
 
-export type SolanaDepositOptions = {
+type SolanaDepositOptions = {
   hookExecutor: Hex;
   usdcMint: PublicKey;
   maxFee: bigint;

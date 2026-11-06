@@ -3,7 +3,7 @@ import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { bytesToHex, type Hex } from "viem";
 import { afterEach, describe, expect, it } from "vitest";
-import { TreasuryExecutor, type RouteAdapter } from "../src/executor.ts";
+import { TreasuryExecutor } from "../src/executor.ts";
 import { decodeVaultHookData } from "../src/hooks.ts";
 import { LocalAttester } from "../src/iris.ts";
 import { addressToBytes32 } from "../src/message.ts";
@@ -18,20 +18,13 @@ import {
   type SolanaReader,
 } from "../src/solana-deposit.ts";
 import { TransferStore } from "../src/transfers.ts";
+import { idleAdapter } from "./helpers.ts";
 
 const HOOK_EXECUTOR: Hex = "0x00000000000000000000000000000000000000ee";
 const BENEFICIARY: Hex = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
 const MAX_FEE = 1_000n;
 const NOW = new Date("2026-11-06T10:00:00.000Z");
 const owner = Keypair.generate().publicKey;
-
-const idleAdapter: RouteAdapter = {
-  burn: async () => {
-    throw new Error("not under test");
-  },
-  messageFor: async () => undefined,
-  deliver: async () => ({ status: "pending", reason: "idle" }),
-};
 
 class FakeReader implements SolanaReader {
   balance: bigint | null = 50_000_000n;

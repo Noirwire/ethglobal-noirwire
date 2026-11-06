@@ -4,7 +4,16 @@ import { join } from "node:path";
 import { CCTP_DOMAINS } from "@noirwire/shared";
 import { padHex, toHex, type Hex } from "viem";
 import { BURN_BODY_VERSION, encodeBurnBody, encodeMessage, FINALITY_FAST, MESSAGE_VERSION } from "../src/message.ts";
+import type { RouteAdapter } from "../src/executor.ts";
 import type { NewTransfer } from "../src/transfers.ts";
+
+export const idleAdapter: RouteAdapter = {
+  burn: async () => {
+    throw new Error("not under test");
+  },
+  messageFor: async () => undefined,
+  deliver: async () => ({ status: "pending", reason: "idle" }),
+};
 
 export function tempJournal(): string {
   return join(mkdtempSync(join(tmpdir(), "bridge-")), "transfers.ndjson");

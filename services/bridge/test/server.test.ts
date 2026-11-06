@@ -1,19 +1,11 @@
 import type { AddressInfo } from "node:net";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import { TreasuryExecutor, type RouteAdapter } from "../src/executor.ts";
+import { TreasuryExecutor } from "../src/executor.ts";
 import { LocalAttester } from "../src/iris.ts";
 import { createBridgeServer, IntentFileWatcher, resolveApiToken } from "../src/server.ts";
 import { TransferStore } from "../src/transfers.ts";
-import { newTransfer, tempJournal, word } from "./helpers.ts";
-
-const idleAdapter: RouteAdapter = {
-  burn: async () => {
-    throw new Error("not under test");
-  },
-  messageFor: async () => undefined,
-  deliver: async () => ({ status: "pending", reason: "idle" }),
-};
+import { idleAdapter, newTransfer, tempJournal, word } from "./helpers.ts";
 
 function setup() {
   const store = new TransferStore();

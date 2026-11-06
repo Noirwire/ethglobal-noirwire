@@ -10,7 +10,7 @@ export const FINALITY_FAST = 1000;
 export const ZERO_BYTES32: Hex = `0x${"00".repeat(32)}`;
 
 const UINT32_BYTES = 4;
-const WORD_BYTES = 32;
+export const WORD_BYTES = 32;
 
 export type CctpMessageFields = {
   version: number;

@@ -68,18 +68,10 @@ export class TreasuryExecutor {
       return existing;
     }
 
-    const policy = this.config.routes[intent.route];
-    if (!policy || !this.adapters[intent.route]) throw new IntentRejected(`route ${intent.route} is not supported`);
-    if (!this.config.allowlist.has(policy.destination.toLowerCase())) {
-      throw new IntentRejected(`destination ${policy.destination} is not on the allowlist`);
-    }
+    const policy = this.allowedRoute(intent.route);
     const total = BigInt(intent.amount);
     if (total <= 0n) throw new IntentRejected("amount must be positive");
-
-    const today = this.now().toISOString().slice(0, 10);
-    if (this.store.createdAmountOnDay(today) + total > this.config.dailyCap) {
-      throw new IntentRejected("daily cap exceeded");
-    }
+    this.checkDailyCap(total);
 
     let cap = policy.perTransferCap ?? this.config.defaultPerTransferCap;
     if (intent.route === "arc-hypercore" && cap > HYPERCORE_MAX_PER_TRANSFER) cap = HYPERCORE_MAX_PER_TRANSFER;
@@ -108,14 +100,23 @@ export class TreasuryExecutor {
   }
 
   checkDeposit(route: TransferRoute, amount: bigint): void {
+    const policy = this.allowedRoute(route);
+    if (amount <= policy.maxFee) throw new IntentRejected(`amount must be above the ${policy.maxFee} base unit fee ceiling`);
+    const cap = policy.perTransferCap ?? this.config.defaultPerTransferCap;
+    if (amount > cap) throw new IntentRejected(`amount is above the per-transfer cap of ${cap} base units`);
+    this.checkDailyCap(amount);
+  }
+
+  private allowedRoute(route: TransferRoute): RoutePolicy {
     const policy = this.config.routes[route];
     if (!policy || !this.adapters[route]) throw new IntentRejected(`route ${route} is not supported`);
     if (!this.config.allowlist.has(policy.destination.toLowerCase())) {
       throw new IntentRejected(`destination ${policy.destination} is not on the allowlist`);
     }
-    if (amount <= policy.maxFee) throw new IntentRejected(`amount must be above the ${policy.maxFee} base unit fee ceiling`);
-    const cap = policy.perTransferCap ?? this.config.defaultPerTransferCap;
-    if (amount > cap) throw new IntentRejected(`amount is above the per-transfer cap of ${cap} base units`);
+    return policy;
+  }
+
+  private checkDailyCap(amount: bigint): void {
     const today = this.now().toISOString().slice(0, 10);
     if (this.store.createdAmountOnDay(today) + amount > this.config.dailyCap) throw new IntentRejected("daily cap exceeded");
   }

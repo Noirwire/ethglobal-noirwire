@@ -13,7 +13,7 @@ import { bytesToHex, hexToBytes, type Hex } from "viem";
 import messageTransmitterIdl from "../idl/message_transmitter_v2.json" with { type: "json" };
 import tokenMessengerMinterIdl from "../idl/token_messenger_minter_v2.json" with { type: "json" };
 import { SOLANA_DEVNET_USDC_MINT } from "./addresses.ts";
-import { decodeMessage } from "./message.ts";
+import { decodeMessage, WORD_BYTES } from "./message.ts";
 
 export const SOLANA_PROGRAMS = {
   messageTransmitterV2: new PublicKey("CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC"),
@@ -113,7 +113,7 @@ export function encodeBurnData(params: Omit<SolanaBurnParams, "owner" | "burnTok
   return Buffer.concat([Buffer.from(burnWithHookIx.discriminator), ...head, borshBytes(hexToBytes(params.hookData))]);
 }
 
-export type DecodedBurnWithHook = {
+type DecodedBurnWithHook = {
   amount: bigint;
   destinationDomain: number;
   mintRecipient: Hex;
@@ -122,8 +122,6 @@ export type DecodedBurnWithHook = {
   minFinalityThreshold: number;
   hookData: Hex;
 };
-
-const WORD_BYTES = 32;
 
 export function decodeBurnWithHookData(data: Uint8Array): DecodedBurnWithHook | undefined {
   const buffer = Buffer.from(data);
