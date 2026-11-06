@@ -1,8 +1,6 @@
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
-import type { Address } from "viem";
-import { erc20Abi } from "./abis.js";
 import type { ForkClients } from "./chain.js";
-import { USDC, WBTC } from "./fork-setup.js";
+import { USDC, WBTC, tokenBalance } from "./fork-setup.js";
 
 export const INVENTORY_PATH = "/v1/aqua/inventory";
 
@@ -14,7 +12,7 @@ export interface Inventory {
 
 export type InventoryReader = () => Promise<Inventory>;
 
-export interface HandlerResult {
+interface HandlerResult {
   status: number;
   body: Record<string, string>;
 }
@@ -24,15 +22,10 @@ export function createInventoryReader(clients: ForkClients): InventoryReader {
   return async () => {
     const block = await clients.publicClient.getBlock({ blockTag: "latest" });
     const maker = clients.address("maker");
-    const read = (token: Address) =>
-      clients.publicClient.readContract({
-        address: token,
-        abi: erc20Abi,
-        functionName: "balanceOf",
-        args: [maker],
-        blockNumber: block.number,
-      });
-    const [usdc6, wbtcE8] = await Promise.all([read(USDC), read(WBTC)]);
+    const [usdc6, wbtcE8] = await Promise.all([
+      tokenBalance(clients, USDC, maker, block.number),
+      tokenBalance(clients, WBTC, maker, block.number),
+    ]);
     return { usdc6, wbtcE8, observedAtSeconds: block.timestamp };
   };
 }

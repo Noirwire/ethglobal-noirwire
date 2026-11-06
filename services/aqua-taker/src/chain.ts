@@ -15,6 +15,8 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { arbitrum } from "viem/chains";
+import { hedgeGuardAbi } from "./abis.js";
+import { type HedgeTarget, toDirectionCode } from "./band.js";
 
 export const DEFAULT_FORK_RPC = LOCAL_NETWORKS.aquaFork.rpcUrl;
 
@@ -34,6 +36,22 @@ export interface ForkClients {
   testClient: TestClient<"anvil", HttpTransport, Chain>;
   wallet(role: ForkRole): WalletClient<HttpTransport, Chain, Account>;
   address(role: ForkRole): Address;
+}
+
+export async function readHedgeTarget(clients: ForkClients, hedgeGuard: Address, maker: Address): Promise<HedgeTarget> {
+  const target = await clients.publicClient.readContract({
+    address: hedgeGuard,
+    abi: hedgeGuardAbi,
+    functionName: "targetOf",
+    args: [maker],
+  });
+  return {
+    direction: toDirectionCode(target.direction),
+    remaining: target.remaining,
+    minPriceE8: target.minPriceE8,
+    maxPriceE8: target.maxPriceE8,
+    expiry: BigInt(target.expiry),
+  };
 }
 
 export function createForkClients(rpcUrl: string = DEFAULT_FORK_RPC): ForkClients {

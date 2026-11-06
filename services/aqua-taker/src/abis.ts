@@ -47,6 +47,10 @@ export const erc20Abi = parseAbi([
   "function approve(address spender, uint256 amount) returns (bool)",
 ]);
 
+export const quoteResultAbi = parseAbi([
+  "function quote((address maker, uint256 traits, bytes data) order, address tokenIn, address tokenOut, uint256 amount, bytes takerData) returns (uint256 amountIn, uint256 amountOut, bytes32 orderHash)",
+]);
+
 export const aquaAbi = parseAbi([
   "function rawBalances(address maker, address app, bytes32 strategyHash, address token) view returns (uint248 balance, uint8 tokensCount)",
 ]);

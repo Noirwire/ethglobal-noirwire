@@ -1,25 +1,20 @@
 import type { Order } from "@1inch/swap-vm-sdk";
-import { type Address, type Hex, decodeEventLog, decodeFunctionResult, parseAbi } from "viem";
-import { hedgeGuardAbi } from "./abis.js";
+import { type Address, type Hex, decodeEventLog, decodeFunctionResult } from "viem";
+import { hedgeGuardAbi, quoteResultAbi } from "./abis.js";
 import {
   Direction,
   type DirectionCode,
   type HedgeTarget,
   allowedTokens,
   sameAddress,
-  toDirectionCode,
   usdcForBtc,
 } from "./band.js";
-import type { ForkClients } from "./chain.js";
+import { type ForkClients, readHedgeTarget } from "./chain.js";
 import type { Deployment } from "./fork-setup.js";
 import { type EncodedCall, buildQuoteCall, buildSwapCall, slippageFloor } from "./strategy.js";
 import { type GuardRevert, REVERTING_TX_GAS, type SentTx, approveMax, callOrExplain, sendCall } from "./tx.js";
 
 const SLIPPAGE_BPS = 100n;
-
-const quoteResultAbi = parseAbi([
-  "function quote((address maker, uint256 traits, bytes data) order, address tokenIn, address tokenOut, uint256 amount, bytes takerData) returns (uint256 amountIn, uint256 amountOut, bytes32 orderHash)",
-]);
 
 export interface Quote {
   amountIn: bigint;
@@ -46,19 +41,7 @@ export class AquaTaker {
   }
 
   async readTarget(maker: Address): Promise<HedgeTarget> {
-    const target = await this.clients.publicClient.readContract({
-      address: this.deployment.hedgeGuard,
-      abi: hedgeGuardAbi,
-      functionName: "targetOf",
-      args: [maker],
-    });
-    return {
-      direction: toDirectionCode(target.direction),
-      remaining: target.remaining,
-      minPriceE8: target.minPriceE8,
-      maxPriceE8: target.maxPriceE8,
-      expiry: BigInt(target.expiry),
-    };
+    return readHedgeTarget(this.clients, this.deployment.hedgeGuard, maker);
   }
 
   tokensFor(direction: DirectionCode): { tokenIn: Address; tokenOut: Address } {

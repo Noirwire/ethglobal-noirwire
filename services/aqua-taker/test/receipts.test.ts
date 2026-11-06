@@ -4,11 +4,10 @@ import {
   encodeEventTopics,
   encodeAbiParameters,
   encodeFunctionResult,
-  parseAbi,
   zeroHash,
 } from "viem";
 import { describe, expect, it } from "vitest";
-import { hedgeGuardAbi } from "../src/abis.ts";
+import { hedgeGuardAbi, quoteResultAbi } from "../src/abis.ts";
 import { Direction } from "../src/band.ts";
 import type { ForkClients } from "../src/chain.ts";
 import type { Deployment } from "../src/fork-setup.ts";
@@ -27,9 +26,6 @@ const deployment: Deployment = {
   oracle: ADDR(6),
 };
 const TX_HASH: Hex = `0x${"ab".repeat(32)}`;
-const quoteAbi = parseAbi([
-  "function quote((address maker, uint256 traits, bytes data) order, address tokenIn, address tokenOut, uint256 amount, bytes takerData) returns (uint256 amountIn, uint256 amountOut, bytes32 orderHash)",
-]);
 
 function hedgeFilledLog(btcAmount: bigint, priceE8: bigint, remaining: bigint) {
   return {
@@ -100,7 +96,7 @@ describe("swap accounting", () => {
       call: () =>
         Promise.resolve({
           data: encodeFunctionResult({
-            abi: quoteAbi,
+            abi: quoteResultAbi,
             functionName: "quote",
             result: [quoted.amountIn, quoted.amountOut, quoted.orderHash],
           }),

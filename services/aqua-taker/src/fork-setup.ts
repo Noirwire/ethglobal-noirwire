@@ -56,12 +56,7 @@ async function balanceSlotFor(
     const slot = balanceSlotAt(holder, index);
     const original = await clients.publicClient.getStorageAt({ address: token, slot });
     await clients.testClient.setStorageAt({ address: token, index: slot, value: pad(toHex(probeValue), { size: 32 }) });
-    const seen = await clients.publicClient.readContract({
-      address: token,
-      abi: erc20Abi,
-      functionName: "balanceOf",
-      args: [holder],
-    });
+    const seen = await tokenBalance(clients, token, holder);
     await clients.testClient.setStorageAt({ address: token, index: slot, value: original ?? pad("0x00", { size: 32 }) });
     if (seen === probeValue) {
       balanceSlotIndexes.set(token.toLowerCase(), index);
@@ -167,6 +162,17 @@ export async function fundAccounts(clients: ForkClients, plan: FundingPlan): Pro
   await setTokenBalance(clients, USDC, taker, plan.takerUsdc6);
 }
 
-export async function tokenBalance(clients: ForkClients, token: Address, holder: Address): Promise<bigint> {
-  return clients.publicClient.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [holder] });
+export async function tokenBalance(
+  clients: ForkClients,
+  token: Address,
+  holder: Address,
+  blockNumber?: bigint,
+): Promise<bigint> {
+  return clients.publicClient.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [holder],
+    blockNumber,
+  });
 }

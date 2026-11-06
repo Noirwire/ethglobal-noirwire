@@ -365,34 +365,28 @@ contract HedgeGuardTest is ForkBase {
         assertEq(target.expiry, block.timestamp + 1 days);
     }
 
-    function test_RevertWhen_SameTargetIdWithDifferentSize() public {
-        _setTarget(IHedgeGuard.Direction.MakerSellsBtc, SIZE);
+    function _expectConflictOnCurrentId(uint64 size, uint64 minPriceE8) internal {
         vm.prank(hedger);
         vm.expectRevert(abi.encodeWithSelector(HedgeGuard.HedgeGuard__TargetIdConflict.selector, _currentId()));
         guard.setTarget(
             maker,
             _currentId(),
             IHedgeGuard.Direction.MakerSellsBtc,
-            SIZE + 1,
-            uint64(oracleE8 * 95 / 100),
+            size,
+            minPriceE8,
             uint64(oracleE8 * 105 / 100),
             uint40(block.timestamp + 1 days)
         );
     }
 
+    function test_RevertWhen_SameTargetIdWithDifferentSize() public {
+        _setTarget(IHedgeGuard.Direction.MakerSellsBtc, SIZE);
+        _expectConflictOnCurrentId(SIZE + 1, uint64(oracleE8 * 95 / 100));
+    }
+
     function test_RevertWhen_SameTargetIdWithDifferentBand() public {
         _setTarget(IHedgeGuard.Direction.MakerSellsBtc, SIZE);
-        vm.prank(hedger);
-        vm.expectRevert(abi.encodeWithSelector(HedgeGuard.HedgeGuard__TargetIdConflict.selector, _currentId()));
-        guard.setTarget(
-            maker,
-            _currentId(),
-            IHedgeGuard.Direction.MakerSellsBtc,
-            SIZE,
-            uint64(oracleE8 * 90 / 100),
-            uint64(oracleE8 * 105 / 100),
-            uint40(block.timestamp + 1 days)
-        );
+        _expectConflictOnCurrentId(SIZE, uint64(oracleE8 * 90 / 100));
     }
 
     function test_NewTargetIdRefillsAfterPartialFill() public {

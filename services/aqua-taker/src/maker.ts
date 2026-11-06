@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { type Address, type Hex, encodeFunctionData, toHex } from "viem";
 import { aquaAbi, hedgeGuardAbi } from "./abis.js";
 import { type DirectionCode, type HedgeTarget, bandAround } from "./band.js";
-import type { ForkClients } from "./chain.js";
+import { type ForkClients, readHedgeTarget } from "./chain.js";
 import type { Deployment } from "./fork-setup.js";
 import { buildDockCall, buildOrder, buildShipCall, strategyHash } from "./strategy.js";
 import { type SentTx, approveMax, sendCall } from "./tx.js";
@@ -91,23 +91,7 @@ export class AquaMaker {
       }),
       value: 0n,
     });
-    const stored = await this.clients.publicClient.readContract({
-      address: this.deployment.hedgeGuard,
-      abi: hedgeGuardAbi,
-      functionName: "targetOf",
-      args: [this.address],
-    });
-    return {
-      tx,
-      targetId,
-      target: {
-        direction: request.direction,
-        remaining: stored.remaining,
-        minPriceE8: stored.minPriceE8,
-        maxPriceE8: stored.maxPriceE8,
-        expiry: BigInt(stored.expiry),
-      },
-    };
+    return { tx, targetId, target: await readHedgeTarget(this.clients, this.deployment.hedgeGuard, this.address) };
   }
 
   async clearTarget(): Promise<SentTx> {
