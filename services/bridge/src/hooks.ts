@@ -1,6 +1,7 @@
 import { concatHex, decodeAbiParameters, encodeAbiParameters, isAddress, numberToHex, stringToHex, type Hex } from "viem";
 
 export const VAULT_HOOK_VERSION = 1;
+export const VAULT_HOOK_DEADLINE_SECONDS = 3600;
 
 export type VaultHook = {
   beneficiary: Hex;

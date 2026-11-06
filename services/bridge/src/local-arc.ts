@@ -11,12 +11,11 @@ import {
   toHex,
   type Abi,
   type Hex,
-  type PublicClient,
 } from "viem";
 import { generatePrivateKey } from "viem/accounts";
 import type { DeliverResult, RouteAdapter, RoutePolicy } from "./executor.ts";
 import { EvmDriver, hookExecutorAbi } from "./evm.ts";
-import { encodeVaultHookData } from "./hooks.ts";
+import { encodeVaultHookData, VAULT_HOOK_DEADLINE_SECONDS } from "./hooks.ts";
 import { LocalAttester } from "./iris.ts";
 import {
   addressToBytes32,
@@ -48,7 +47,7 @@ function artifact(file: string, name: string): Artifact {
   return JSON.parse(readFileSync(path, "utf8")) as Artifact;
 }
 
-export type LocalDeployment = {
+type LocalDeployment = {
   chainId: number;
   usdc: Hex;
   shareVault?: Hex;
@@ -56,7 +55,7 @@ export type LocalDeployment = {
   messageTransmitterV2?: Hex;
 };
 
-export function readLocalDeployment(): LocalDeployment | undefined {
+function readLocalDeployment(): LocalDeployment | undefined {
   if (!existsSync(LOCAL_DEPLOYMENT)) return undefined;
   const parsed: ContractAddresses = contractAddresses.parse(JSON.parse(readFileSync(LOCAL_DEPLOYMENT, "utf8")));
   return {
@@ -79,8 +78,8 @@ export async function localChainReachable(rpcUrl: string): Promise<boolean> {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-export class LocalSolanaArcAdapter implements RouteAdapter {
-  readonly messages = new Map<string, Hex>();
+class LocalSolanaArcAdapter implements RouteAdapter {
+  private readonly messages = new Map<string, Hex>();
   private burns = 0;
 
   constructor(
@@ -163,18 +162,16 @@ async function deployFromArtifacts(
   };
 }
 
-export type LocalArcOptions = {
+type LocalArcOptions = {
   deployIfMissing: boolean;
   stepDelayMs?: number;
 };
 
 export type LocalArc = {
   chainId: number;
-  publicClient: PublicClient;
   attester: LocalAttester;
   adapter: LocalSolanaArcAdapter;
   hookExecutor: Hex;
-  shareVault: Hex;
   beneficiary: Hex;
   route: RoutePolicy;
   depositIntent(amount: bigint): TopUpIntent;
@@ -267,7 +264,7 @@ export async function setupLocalArc(rpcUrl: string, options: LocalArcOptions): P
         hookData: encodeVaultHookData({
           beneficiary,
           solanaDepositor,
-          deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+          deadline: BigInt(Math.floor(Date.now() / 1000) + VAULT_HOOK_DEADLINE_SECONDS),
         }),
       }),
     });
@@ -280,11 +277,9 @@ export async function setupLocalArc(rpcUrl: string, options: LocalArcOptions): P
   });
   return {
     chainId,
-    publicClient,
     attester,
     adapter: new LocalSolanaArcAdapter(evm, buildMessage, options.stepDelayMs),
     hookExecutor,
-    shareVault,
     beneficiary,
     route: { destination: hookExecutor, maxFee: LOCAL_FEE, beneficiary },
     depositIntent: (amount) => ({

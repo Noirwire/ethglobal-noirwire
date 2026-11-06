@@ -7,11 +7,11 @@ import { ARC_TESTNET_USDC, CIRCLE_TESTNET, SOLANA_DEVNET_USDC_MINT } from "./add
 import { ArcHypercoreAdapter, ArcSolanaAdapter, SolanaArcAdapter } from "./adapters.ts";
 import { EvmDriver } from "./evm.ts";
 import type { ExecutorConfig, RouteAdapter } from "./executor.ts";
+import { VAULT_HOOK_DEADLINE_SECONDS } from "./hooks.ts";
 import { HyperliquidInfoReader } from "./hyperliquid.ts";
 import type { IrisClient } from "./iris.ts";
 import { SolanaDriver } from "./solana.ts";
 
-const VAULT_HOOK_DEADLINE_SECONDS = 3600;
 const DEFAULT_HYPERCORE_MAX_FEE = "300000";
 const DEFAULT_SOLANA_MAX_FEE = "100000";
 

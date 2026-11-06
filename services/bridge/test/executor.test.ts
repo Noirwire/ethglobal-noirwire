@@ -153,6 +153,29 @@ describe("intent policy", () => {
   });
 });
 
+describe("advance re-entrancy", () => {
+  it("ignores a second advance for a transfer that is already being advanced", async () => {
+    const { executor, adapter, store } = setup();
+    const [transfer] = executor.submit(intent());
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    adapter.burn = async () => {
+      adapter.burns++;
+      await gate;
+      return { burnTx: "0xburn1" };
+    };
+    const first = executor.advance(transfer!.transferId);
+    await executor.advance(transfer!.transferId);
+    expect(adapter.burns).toBe(1);
+    release();
+    await first;
+    expect(adapter.burns).toBe(1);
+    expect(store.get(transfer!.transferId)!.state).not.toBe("requested");
+  });
+});
+
 describe("HyperCore credit", () => {
   it("stays forwarded and pending while the HyperCore balance has not risen", async () => {
     const { executor, store, adapter } = setup();
