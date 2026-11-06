@@ -81,6 +81,7 @@ function floorToMinute(iso: string): string {
 
 function errorLabel(transfer: BridgeTransfer, reached: number): string {
   if (transfer.state === "stuck") return reached <= 2 && !transfer.attestation ? "waiting for attestation" : "stalled";
+  if (REFUSED_RELEASE.test(transfer.error ?? "")) return "refused";
   return /refund/i.test(transfer.error ?? "") ? "refunded" : "failed";
 }
 
@@ -106,6 +107,64 @@ export function railFor(transfer: BridgeTransfer): Rail {
   return { nodes, terminal };
 }
 
+export interface Move {
+  direction: string;
+  why: string | null;
+  step: string;
+  refused: string | null;
+}
+
+const DIRECTION: Record<TransferRoute, string> = {
+  "arc-hypercore": "Vault to Hyperliquid margin",
+  "hypercore-arc": "Hyperliquid surplus back to vault",
+  "arc-solana": "Arc to Solana",
+  "solana-arc": "Solana to Arc",
+};
+
+const WHY: Record<TransferRoute, string | null> = {
+  "arc-hypercore": "margin top-up",
+  "hypercore-arc": "surplus",
+  "arc-solana": null,
+  "solana-arc": null,
+};
+
+const REFUSED_RELEASE = /vault refused the release/i;
+const REFUSED_REASON = "The vault declined to release the funds, so nothing moved.";
+
+function stepFor(transfer: BridgeTransfer): string {
+  const returning = transfer.route === "hypercore-arc";
+  switch (transfer.state) {
+    case "requested":
+      return transfer.released ? "Released from vault" : "Requested";
+    case "burned":
+      return "Burned";
+    case "attested":
+      return "Circle signed";
+    case "minted":
+    case "hook-executed":
+    case "forwarded":
+      return "Delivered";
+    case "vault-credited":
+    case "claimable":
+    case "credited":
+      return returning ? "Returned to vault" : "Credited";
+    case "stuck":
+      return "Stalled";
+    case "failed":
+      return /refund/i.test(transfer.error ?? "") ? "Refunded" : "Failed";
+  }
+}
+
+export function moveFor(transfer: BridgeTransfer): Move {
+  const refused = transfer.state === "failed" && REFUSED_RELEASE.test(transfer.error ?? "");
+  return {
+    direction: DIRECTION[transfer.route],
+    why: WHY[transfer.route],
+    step: refused ? "Refused" : stepFor(transfer),
+    refused: refused ? REFUSED_REASON : null,
+  };
+}
+
 export function publicTransfers(transfers: BridgeTransfer[], nowMs: number): PublicTransfer[] {
   return transfers
     .filter((transfer) => Date.parse(transfer.updatedAt) <= nowMs - PUBLISH_DELAY_MS)
@@ -120,6 +179,7 @@ export function publicTransfers(transfers: BridgeTransfer[], nowMs: number): Pub
       attester: transfer.attester,
       updatedAt: floorToMinute(transfer.updatedAt),
       rail: railFor(transfer),
+      move: moveFor(transfer),
     }));
 }
 

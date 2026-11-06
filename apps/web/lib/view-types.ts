@@ -1,7 +1,7 @@
 import type { TrustLabel } from "@noirwire/shared";
 import type { PublicBucket } from "./privacy";
 import type { HedgerStatus } from "./residual";
-import type { Rail } from "./transfers";
+import type { Move, Rail } from "./transfers";
 import type { TransferRoute, TransferState } from "@noirwire/shared";
 
 export interface Down {
@@ -29,6 +29,7 @@ export interface PublicTransfer {
   attester: "circle-iris" | "local-test-attester";
   updatedAt: string;
   rail: Rail;
+  move: Move;
 }
 
 export interface PublicNavSource {

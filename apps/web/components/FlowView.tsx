@@ -16,12 +16,18 @@ function TransferRow({ transfer }: { transfer: PublicTransfer }) {
     <li className="border-line-subtle border-t py-8">
       <div className="mb-6 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
         <p className="text-ink-strong text-body">
-          {CHAIN_LABEL[chains.from]} <span className="text-faint">to</span> {CHAIN_LABEL[chains.to]}
+          {transfer.move.direction}
+          {transfer.move.why && <span className="text-dim"> ({transfer.move.why})</span>}
+          <span className="text-faint text-label block">
+            {CHAIN_LABEL[chains.from]} to {CHAIN_LABEL[chains.to]}
+          </span>
         </p>
         <p className="tnum text-ink-strong text-body">
           {formatUsdc(transfer.gross)} <span className="text-faint text-label">USDC</span>
+          <span className={`${transfer.move.refused ? "text-danger" : "text-dim"} text-label block text-right`}>{transfer.move.step}</span>
         </p>
       </div>
+      {transfer.move.refused && <p className="text-danger mb-4 text-label">{transfer.move.refused}</p>}
       <Rail nodes={transferNodes(transfer)} />
       <div className="mt-5 flex flex-wrap items-center gap-2 text-label">
         <span className="border-line text-dim rounded-full border px-3 py-0.5" title={local ? "Attestation signed by a local test key, not by Circle" : "Attestation fetched from Circle's Iris service"}>
