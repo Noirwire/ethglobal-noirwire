@@ -6,32 +6,11 @@ import {
   type HlOrderParams,
   type HlOrderStatusEntry,
 } from "../src/venue/hyperliquid-venue.ts";
+import { fakeInfo } from "./harness.ts";
 
 const ACCOUNT = `0x${"11".repeat(20)}` as const;
 const CLOID = `0x${"0".repeat(31)}1` as const;
 const BTC = 100_000_000n;
-
-function fakeInfo(overrides: Partial<HlInfoLike> = {}): HlInfoLike {
-  const universe = [
-    { name: "ETH", szDecimals: 4, maxLeverage: 25 },
-    { name: "BTC", szDecimals: 5, maxLeverage: 40 },
-  ];
-  return {
-    meta: async () => ({ universe }),
-    metaAndAssetCtxs: async () => [{ universe }, [{ markPx: "3000.5" }, { markPx: "100123.0" }]],
-    clearinghouseState: async () => ({
-      marginSummary: { accountValue: "1234.567891", totalMarginUsed: "250.5" },
-      withdrawable: "900.1",
-      assetPositions: [
-        { position: { coin: "ETH", szi: "1.5" } },
-        { position: { coin: "BTC", szi: "-0.01234" } },
-      ],
-    }),
-    orderStatus: async () => ({ status: "unknownOid" as const }),
-    userFillsByTime: async () => [],
-    ...overrides,
-  };
-}
 
 function fakeExchange(statuses: HlOrderStatusEntry[]) {
   const orders: HlOrderParams[] = [];

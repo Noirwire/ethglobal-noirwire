@@ -8,7 +8,7 @@ import { parsePositionResponse } from "../src/sources/tape.ts";
 import type { FillBatch, FillSource, HedgeVenue, VenueFill } from "../src/types.ts";
 import { HyperliquidVenue, type HlExchangeLike, type HlInfoLike } from "../src/venue/hyperliquid-venue.ts";
 import { MockVenue } from "../src/venue/mock-venue.ts";
-import { counterCloids, MARK_PX8, START_MS, TestClock } from "./harness.ts";
+import { counterCloids, fakeInfo, MARK_PX8, START_MS, TestClock } from "./harness.ts";
 
 const BTC = 100_000_000n;
 const ACCOUNT = `0x${"11".repeat(20)}` as const;
@@ -79,15 +79,7 @@ describe("maker position freshness", () => {
 
 describe("hyperliquid fills carry the cloid", () => {
   function info(fills: Awaited<ReturnType<HlInfoLike["userFillsByTime"]>>, orderOid?: number): HlInfoLike {
-    const universe = [{ name: "BTC", szDecimals: 5, maxLeverage: 40 }];
-    return {
-      meta: async () => ({ universe }),
-      metaAndAssetCtxs: async () => [{ universe }, [{ markPx: "100123.0" }]],
-      clearinghouseState: async () => ({
-        marginSummary: { accountValue: "1000", totalMarginUsed: "0" },
-        withdrawable: "1000",
-        assetPositions: [],
-      }),
+    return fakeInfo({
       orderStatus: async () =>
         orderOid === undefined
           ? { status: "unknownOid" as const }
@@ -96,7 +88,7 @@ describe("hyperliquid fills carry the cloid", () => {
               order: { status: "filled", order: { origSz: "0.01", sz: "0", oid: orderOid } },
             },
       userFillsByTime: async () => fills,
-    };
+    });
   }
 
   it("uses the cloid the venue reports on the fill", async () => {

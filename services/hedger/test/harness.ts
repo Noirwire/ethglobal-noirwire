@@ -4,9 +4,32 @@ import { EventBus } from "../src/events.ts";
 import { Journal, MemoryJournalStore } from "../src/journal.ts";
 import { ReplayFillSource } from "../src/sources/replay.ts";
 import type { ReferencePriceSource } from "../src/types.ts";
+import type { HlInfoLike } from "../src/venue/hyperliquid-venue.ts";
 import { MockVenue, type MockVenueOptions } from "../src/venue/mock-venue.ts";
 
-export const MARK_PX8 = 100_000n * 100_000_000n;
+export function fakeInfo(overrides: Partial<HlInfoLike> = {}): HlInfoLike {
+  const universe = [
+    { name: "ETH", szDecimals: 4, maxLeverage: 25 },
+    { name: "BTC", szDecimals: 5, maxLeverage: 40 },
+  ];
+  return {
+    meta: async () => ({ universe }),
+    metaAndAssetCtxs: async () => [{ universe }, [{ markPx: "3000.5" }, { markPx: "100123.0" }]],
+    clearinghouseState: async () => ({
+      marginSummary: { accountValue: "1234.567891", totalMarginUsed: "250.5" },
+      withdrawable: "900.1",
+      assetPositions: [
+        { position: { coin: "ETH", szi: "1.5" } },
+        { position: { coin: "BTC", szi: "-0.01234" } },
+      ],
+    }),
+    orderStatus: async () => ({ status: "unknownOid" as const }),
+    userFillsByTime: async () => [],
+    ...overrides,
+  };
+}
+
+export const MARK_PX8 =100_000n * 100_000_000n;
 export const START_MS = 1_800_000_000_000;
 
 export class TestClock {

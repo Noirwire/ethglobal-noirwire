@@ -12,7 +12,6 @@ import {
   type JournalOrder,
   type JournalState,
 } from "./journal.ts";
-import { minOrderSize } from "./hl-rules.ts";
 import { buildTopUpIntent, classifyMargin, marginRatioBps, type MarginBand } from "./margin.ts";
 import { abs } from "./numbers.ts";
 import {
@@ -20,8 +19,7 @@ import {
   holdThreshold8,
   INITIAL_THROTTLE,
   isReduceOnly,
-  limitPrice,
-  sideForDelta,
+  orderBounds,
   sizeOrder,
   throttleAfterPlacement,
   type Throttle,
@@ -383,10 +381,9 @@ export class HedgeController {
     const { spec } = this.venue;
     const { account } = venueRead;
     const delta8 = -(makerPos8 + aqua8) - position.pos8;
-    const side = sideForDelta(delta8);
-    const limitPx8 = limitPrice(account.markPx8, side, this.config.priceBandBps, spec.szDecimals);
-    if (limitPx8 === null) return { decision: "hold:price-band" };
-    const minSize = minOrderSize(limitPx8, spec.szDecimals, spec.minNotional6);
+    const bounds = orderBounds(delta8, account.markPx8, this.config.priceBandBps, spec);
+    if (bounds === null) return { decision: "hold:price-band" };
+    const { side, limitPx8, minSize } = bounds;
 
     if (abs(delta8) < holdThreshold8(this.config.deadband8, minSize)) {
       await this.clearAquaBand();

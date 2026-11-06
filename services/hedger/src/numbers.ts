@@ -1,16 +1,11 @@
-import { BTC_DECIMALS, fromBaseUnits, USDC_DECIMALS } from "@noirwire/shared";
+import { BTC_DECIMALS, fromBaseUnits, parseDecimalTruncating, USDC_DECIMALS } from "@noirwire/shared";
+
+export { parseDecimalTruncating };
 
 export const PRICE_DECIMALS = 8;
 export const BPS = 10_000n;
 export const BPS_NUMBER = Number(BPS);
 export const SIZE_TIMES_PRICE_PER_USD6 = 10n ** BigInt(BTC_DECIMALS + PRICE_DECIMALS - USDC_DECIMALS);
-
-export function parseDecimalTruncating(value: string, decimals: number): bigint {
-  const negative = value.startsWith("-");
-  const [whole = "0", fraction = ""] = value.replace(/^-/, "").split(".");
-  const units = BigInt(whole + fraction.slice(0, decimals).padEnd(decimals, "0"));
-  return negative ? -units : units;
-}
 
 export function btcFromDecimal(value: string): bigint {
   return parseDecimalTruncating(value, BTC_DECIMALS);
@@ -52,8 +47,4 @@ export function sizeForNotionalCeil(notionalUsd6Value: bigint, px8: bigint): big
   if (px8 <= 0n) throw new Error("price must be positive");
   const numerator = notionalUsd6Value * SIZE_TIMES_PRICE_PER_USD6;
   return (numerator + px8 - 1n) / px8;
-}
-
-export function sizeForNotionalFloor(notionalUsd6Value: bigint, px8: bigint): bigint {
-  return (notionalUsd6Value * SIZE_TIMES_PRICE_PER_USD6) / px8;
 }

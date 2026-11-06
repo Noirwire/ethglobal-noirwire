@@ -1,7 +1,7 @@
-import { roundPriceForSide, roundSizeDown } from "./hl-rules.ts";
+import { minOrderSize, roundPriceForSide, roundSizeDown } from "./hl-rules.ts";
 import { abs, BPS, BPS_NUMBER, max, min, notionalUsd6, SIZE_TIMES_PRICE_PER_USD6 } from "./numbers.ts";
 import { classifyMargin, marginRatioBps } from "./margin.ts";
-import type { AccountState, AquaBand, Side } from "./types.ts";
+import type { AccountState, AquaBand, Side, VenueSpec } from "./types.ts";
 
 const MAX_HEDGE_LEVERAGE = 5n;
 const SHRINK_FLOOR_BPS = 1_000;
@@ -25,6 +25,24 @@ export function limitPrice(markPx8: bigint, side: Side, priceBandBps: number, sz
   const inward = roundPriceForSide(raw, side === "buy" ? "sell" : "buy", szDecimals);
   const crosses = side === "buy" ? inward >= markPx8 : inward <= markPx8;
   return crosses ? inward : null;
+}
+
+export interface OrderBounds {
+  side: Side;
+  limitPx8: bigint;
+  minSize: bigint;
+}
+
+export function orderBounds(
+  delta8: bigint,
+  markPx8: bigint,
+  priceBandBps: number,
+  spec: Pick<VenueSpec, "szDecimals" | "minNotional6">,
+): OrderBounds | null {
+  const side = sideForDelta(delta8);
+  const limitPx8 = limitPrice(markPx8, side, priceBandBps, spec.szDecimals);
+  if (limitPx8 === null) return null;
+  return { side, limitPx8, minSize: minOrderSize(limitPx8, spec.szDecimals, spec.minNotional6) };
 }
 
 export function aquaBandFor(
