@@ -1,0 +1,25 @@
+{
+  "name": "@noirwire/hedger",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "check-types": "tsc --noEmit",
+    "start": "tsx src/main.ts",
+    "dev": "tsx watch src/main.ts"
+  },
+  "dependencies": {
+    "@nktkas/hyperliquid": "0.33.3",
+    "@noirwire/shared": "workspace:*",
+    "viem": "^2.38.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "26.4.1",
+    "tsx": "^4.20.6",
+    "typescript": "7.0.2",
+    "vitest": "^4.0.8"
+  }
+}

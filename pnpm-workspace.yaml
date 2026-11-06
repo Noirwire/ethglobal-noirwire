@@ -4,3 +4,12 @@ packages:
   - "services/*"
   - "workflows/*"
   - "contracts/*"
+allowBuilds:
+  bigint-buffer: false
+  bufferutil: false
+  esbuild: true
+  utf-8-validate: false
+minimumReleaseAgeExclude:
+  - '@1inch/aqua-sdk@0.4.0'
+  - '@1inch/sdk-core@0.2.0'
+  - '@1inch/swap-vm-sdk@0.5.0'
