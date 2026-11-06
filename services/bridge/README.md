@@ -47,6 +47,19 @@ Intents also arrive from a FlowEvent NDJSON file (`INTENT_FILE`), polled every 5
 
 Per-transfer cap (HyperCore hard max 1000 USDC, larger amounts are split), daily cap (UTC day, all or nothing, derived from the journal so it survives restarts), and a destination allowlist (`DESTINATION_ALLOWLIST`, comma separated, case insensitive). An intent that breaks a rule creates nothing.
 
+## Local mode
+
+`BRIDGE_NETWORK=local pnpm start` (or `make bridge-up`) runs the HTTP service against a local anvil that already holds the `make deploy-local` deployment. Only the `solana-arc` route is wired; the attester is the generated `LocalAttester` (registered on the mock transmitter at start), so every transfer is labelled `local-test-attester`. Testnet is the default and is unchanged.
+
+| Env | Meaning |
+| --- | --- |
+| `BRIDGE_NETWORK` | `testnet` (default) or `local` |
+| `ARC_RPC_URL` | local node, default `http://127.0.0.1:8545`; the chain id is read from the node and must match `contracts/vault/deployments/local.json` |
+| `BRIDGE_PORT` | HTTP port, default 8702 (both modes) |
+| `BRIDGE_LOCAL_STEP_MS` | pause per step so a transfer is visibly walking, default 1000 |
+
+`POST /v1/dev/deposit` (local mode only, 404 otherwise) with an optional body `{"amount": "<base units>"}` (default 7500000) simulates one Solana to Arc deposit and returns 202 with the transfer and the credited beneficiary. Poll `GET /v1/transfers` to watch `burned`, `attested`, `hook-executed`, `vault-credited`.
+
 ## Local vs testnet
 
 Local (no network writes):
