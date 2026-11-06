@@ -17,6 +17,9 @@ export const STAGE_LABEL: Record<Stage, string> = {
 export const ROUTE_CHAINS: Record<TransferRoute, { from: Chain; to: Chain }> = {
   "arc-solana": { from: "arc", to: "solana" },
   "solana-arc": { from: "solana", to: "arc" },
+  "ethereum-arc": { from: "ethereum", to: "arc" },
+  "base-arc": { from: "base", to: "arc" },
+  "arbitrum-arc": { from: "arbitrum", to: "arc" },
   "arc-hypercore": { from: "arc", to: "hypercore" },
   "hypercore-arc": { from: "hypercore", to: "arc" },
   "solana-hypercore": { from: "solana", to: "hypercore" },
@@ -121,6 +124,9 @@ const DIRECTION: Record<TransferRoute, string> = {
   "hypercore-arc": "Hyperliquid surplus back to vault",
   "arc-solana": "Arc to Solana",
   "solana-arc": "Solana to Arc",
+  "ethereum-arc": "Ethereum Sepolia to Arc",
+  "base-arc": "Base Sepolia to Arc",
+  "arbitrum-arc": "Arbitrum Sepolia to Arc",
   "solana-hypercore": "Solana to Hyperliquid",
   "hypercore-solana": "Hyperliquid to Solana",
 };
@@ -130,6 +136,9 @@ const WHY: Record<TransferRoute, string | null> = {
   "hypercore-arc": "surplus",
   "arc-solana": null,
   "solana-arc": null,
+  "ethereum-arc": null,
+  "base-arc": null,
+  "arbitrum-arc": null,
   "solana-hypercore": "collateral rebalance",
   "hypercore-solana": "collateral rebalance",
 };
@@ -165,7 +174,7 @@ export function moveFor(transfer: BridgeTransfer): Move {
   const refused = transfer.state === "failed" && REFUSED_RELEASE.test(transfer.error ?? "");
   return {
     direction: DIRECTION[transfer.route],
-    why: WHY[transfer.route],
+    why: transfer.deposit ? "deposit" : WHY[transfer.route],
     step: refused ? "Refused" : stepFor(transfer),
     refused: refused ? REFUSED_REASON : null,
   };

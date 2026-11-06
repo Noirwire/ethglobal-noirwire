@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { NETWORKS, type TransferRoute } from "@noirwire/shared";
+import { EVM_FUNDING_SOURCES, NETWORKS, type EvmFundingSourceId, type TransferRoute } from "@noirwire/shared";
+import { EVM_DEPOSIT_ROUTES, EvmArcAdapter, EvmDeposits, ViemSourceReader, type EvmDepositApi, type EvmDepositSource } from "./evm-deposit.ts";
 import { bytesToHex, createPublicClient, createWalletClient, defineChain, erc20Abi, http, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { ARC_TESTNET_USDC, CIRCLE_TESTNET, CORE_DEPOSIT_WALLET_TESTNET, SOLANA_DEVNET_USDC_MINT } from "./addresses.ts";
@@ -25,6 +26,13 @@ export type RebalanceWiring = { token?: string; build: (executor: TreasuryExecut
 const DEFAULT_HYPERCORE_MAX_FEE = "300000";
 const DEFAULT_SOLANA_MAX_FEE = "100000";
 const DEFAULT_RETURN_MAX_FEE = "300000";
+const DEFAULT_EVM_ARC_MAX_FEE = 1_000_000n;
+
+const EVM_RPC_ENV: Record<EvmFundingSourceId, string> = {
+  ethereumSepolia: "ETHEREUM_SEPOLIA_RPC_URL",
+  baseSepolia: "BASE_SEPOLIA_RPC_URL",
+  arbitrumSepolia: "ARBITRUM_SEPOLIA_RPC_URL",
+};
 
 function listEnv(value: string | undefined): string[] | undefined {
   const items = value?.split(",").map((item) => item.trim()).filter(Boolean);
@@ -44,11 +52,13 @@ export function wireTestnet(
   config: ExecutorConfig,
 ): {
   solanaDeposits?: (executor: TreasuryExecutor) => SolanaDepositApi;
+  evmDeposits?: (executor: TreasuryExecutor, store: TransferStore) => EvmDepositApi;
   intentWatcher?: IntentWatcherWiring;
   rebalance?: RebalanceWiring;
 } {
   let rebalance: RebalanceWiring | undefined;
   let solanaDeposits: ((executor: TreasuryExecutor) => SolanaDepositApi) | undefined;
+  let evmDeposits: ((executor: TreasuryExecutor, store: TransferStore) => EvmDepositApi) | undefined;
   let intentWatcher: IntentWatcherWiring | undefined;
   const operatorKey = env("ARC_OPERATOR_KEY");
   if (!operatorKey) throw new Error("ARC_OPERATOR_KEY is required");
@@ -72,6 +82,32 @@ export function wireTestnet(
       hookExecutor,
     },
   );
+
+  if (hookExecutor) {
+    for (const route of Object.values(EVM_DEPOSIT_ROUTES)) {
+      adapters[route] = new EvmArcAdapter(evm);
+      config.routes[route] = { destination: hookExecutor, maxFee: DEFAULT_EVM_ARC_MAX_FEE };
+    }
+    const rpcUrls: Record<number, string> = {};
+    const transmitters: Record<number, Hex> = {};
+    const sources: Record<number, EvmDepositSource> = {};
+    for (const [id, source] of Object.entries(EVM_FUNDING_SOURCES)) {
+      rpcUrls[source.cctpDomain] = env(EVM_RPC_ENV[id as EvmFundingSourceId]) ?? source.rpcUrl;
+      transmitters[source.cctpDomain] = CIRCLE_TESTNET.messageTransmitterV2;
+      sources[source.cctpDomain] = {
+        label: source.label,
+        tokenMessenger: CIRCLE_TESTNET.tokenMessengerV2,
+        messageTransmitter: CIRCLE_TESTNET.messageTransmitterV2,
+        usdc: source.usdc,
+      };
+    }
+    evmDeposits = (executor, transferStore) =>
+      new EvmDeposits(new ViemSourceReader(rpcUrls, transmitters), executor, transferStore, {
+        hookExecutor,
+        localTokenMessenger: CIRCLE_TESTNET.tokenMessengerV2,
+        sources,
+      });
+  }
 
   const shareVault = env("SHARE_VAULT") as Hex | undefined;
   const navReceiver = env("NAV_RECEIVER") as Hex | undefined;
@@ -213,5 +249,5 @@ export function wireTestnet(
         });
     }
   }
-  return { solanaDeposits, intentWatcher, rebalance };
+  return { solanaDeposits, evmDeposits, intentWatcher, rebalance };
 }

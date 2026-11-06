@@ -115,6 +115,18 @@ describe("intent policy", () => {
     expect(store.list()).toHaveLength(1);
   });
 
+  it("marks an adopted burn as a deposit in the view, durably, and leaves intent transfers unmarked", () => {
+    const journal = tempJournal();
+    const { executor } = setup({ journal });
+    const adopted = executor.adoptBurn({ route: "arc-solana", burnTx: "0xdep", amount: 5_000_000n, beneficiary: "0xabc" });
+    const [rebalance] = executor.submit(intent());
+    expect(executor.view(adopted).deposit).toBe(true);
+    expect(executor.view(rebalance as NonNullable<typeof rebalance>).deposit).toBeUndefined();
+    const restarted = setup({ journal });
+    const stored = restarted.store.get(adopted.transferId) as NonNullable<ReturnType<typeof restarted.store.get>>;
+    expect(restarted.executor.view(stored).deposit).toBe(true);
+  });
+
   it("enforces the daily cap across intents, all or nothing", () => {
     const { executor, store } = setup({ cfg: { dailyCap: 1_200_000_000n } });
     executor.submit(intent({ amount: "1000000000" }));

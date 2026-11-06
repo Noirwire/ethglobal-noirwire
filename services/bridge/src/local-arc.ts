@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { CCTP_DOMAINS, contractAddresses, type BridgeTransfer, type ContractAddresses, type TopUpIntent } from "@noirwire/shared";
+import { CCTP_DOMAINS, CCTP_TESTNET_CONTRACTS, EVM_FUNDING_SOURCES, contractAddresses, type BridgeTransfer, type ContractAddresses, type TopUpIntent } from "@noirwire/shared";
 import {
   createPublicClient,
   createWalletClient,
@@ -260,15 +260,16 @@ async function deployFromArtifacts(
   const messenger = addressToBytes32("0x00000000000000000000000000000000000000a1");
   const burnToken = addressToBytes32("0x00000000000000000000000000000000000000b2");
   const local = addressToBytes32("0x00000000000000000000000000000000000000c3");
-  const hookExecutor = await deploy(artifact("HookExecutor", "HookExecutor"), [
-    transmitter,
-    usdc,
-    vault,
-    messenger,
-    burnToken,
-    local,
-    deployer,
-  ]);
+  const evmMessenger = addressToBytes32(CCTP_TESTNET_CONTRACTS.tokenMessengerV2);
+  const sources = [
+    { domain: CCTP_DOMAINS.solana, tokenMessenger: messenger, burnToken },
+    ...Object.values(EVM_FUNDING_SOURCES).map((source) => ({
+      domain: source.cctpDomain,
+      tokenMessenger: evmMessenger,
+      burnToken: addressToBytes32(source.usdc),
+    })),
+  ];
+  const hookExecutor = await deploy(artifact("HookExecutor", "HookExecutor"), [transmitter, usdc, vault, sources, local, deployer]);
   return {
     chainId,
     usdc,
@@ -302,6 +303,8 @@ export type LocalArc = {
   vault: VaultTreasury;
   addresses: LocalDeployment;
   publicClient: PublicClient;
+  evm: EvmDriver;
+  localTokenMessenger: Hex;
   treasury: Hex;
   depositIntent(amount: bigint): TopUpIntent;
   vaultPosition(): Promise<bigint>;
@@ -360,12 +363,20 @@ export async function setupLocalArc(rpcUrl: string, options: LocalArcOptions): P
     await publicClient.waitForTransactionReceipt({ hash });
   }
 
-  const read = <T extends "sourceTokenMessenger" | "sourceBurnToken" | "localTokenMessenger">(functionName: T) =>
-    publicClient.readContract({ address: hookExecutor, abi: hookExecutorAbi, functionName });
   const [sender, burnToken, recipient] = await Promise.all([
-    read("sourceTokenMessenger"),
-    read("sourceBurnToken"),
-    read("localTokenMessenger"),
+    publicClient.readContract({
+      address: hookExecutor,
+      abi: hookExecutorAbi,
+      functionName: "sourceTokenMessenger",
+      args: [CCTP_DOMAINS.solana],
+    }),
+    publicClient.readContract({
+      address: hookExecutor,
+      abi: hookExecutorAbi,
+      functionName: "sourceBurnToken",
+      args: [CCTP_DOMAINS.solana],
+    }),
+    publicClient.readContract({ address: hookExecutor, abi: hookExecutorAbi, functionName: "localTokenMessenger" }),
   ]);
 
   const executorWord = addressToBytes32(hookExecutor);
@@ -456,6 +467,8 @@ export async function setupLocalArc(rpcUrl: string, options: LocalArcOptions): P
     vault: new VaultTreasury(shareVault, operator, new ViemVaultChain(publicClient, walletClient, shareVault)),
     addresses,
     publicClient,
+    evm,
+    localTokenMessenger: recipient,
     treasury: operator,
     depositIntent: (amount) => ({
       intentId: keccak256(toHex(`local-deposit-${Date.now()}-${Math.random()}`)),

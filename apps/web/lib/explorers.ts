@@ -1,15 +1,24 @@
-import { NETWORKS } from "@noirwire/shared";
+import { EVM_FUNDING_SOURCES, NETWORKS } from "@noirwire/shared";
 
-export type Chain = "arc" | "solana" | "hypercore";
+export type Chain = "arc" | "solana" | "hypercore" | "ethereum" | "base" | "arbitrum";
 
 export const CHAIN_LABEL: Record<Chain, string> = {
   arc: "Arc",
   solana: "Solana",
   hypercore: "HyperCore",
+  ethereum: "Ethereum Sepolia",
+  base: "Base Sepolia",
+  arbitrum: "Arbitrum Sepolia",
 };
 
 export function txUrl(chain: Chain, hash: string): string {
   switch (chain) {
+    case "ethereum":
+      return `${EVM_FUNDING_SOURCES.ethereumSepolia.explorer}/tx/${hash}`;
+    case "base":
+      return `${EVM_FUNDING_SOURCES.baseSepolia.explorer}/tx/${hash}`;
+    case "arbitrum":
+      return `${EVM_FUNDING_SOURCES.arbitrumSepolia.explorer}/tx/${hash}`;
     case "arc":
       return `${NETWORKS.arcTestnet.explorer}/tx/${hash}`;
     case "solana":

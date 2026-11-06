@@ -82,6 +82,14 @@ describe("in-transit selection", () => {
     expect(selectInTransit(items).map((t) => t.transferId)).toEqual(["k", "m"]);
   });
 
+  it("does not count a depositor's burn in flight, but still counts a rebalance on the same route", () => {
+    const items = [
+      transfer({ transferId: "dep", route: "solana-arc", state: "burned", deposit: true }),
+      transfer({ transferId: "reb", route: "solana-arc", state: "burned" }),
+    ];
+    expect(selectInTransit(items).map((t) => t.transferId)).toEqual(["reb"]);
+  });
+
   it("ignores a transfer that has not burned yet, because the source leg still holds it", () => {
     expect(selectInTransit([transfer({ transferId: "r", state: "requested" })])).toEqual([]);
   });

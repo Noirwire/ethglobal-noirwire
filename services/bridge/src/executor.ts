@@ -13,6 +13,7 @@ const SERIALIZED_ROUTES: ReadonlySet<TransferRoute> = new Set([
   "solana-hypercore",
   "hypercore-solana",
 ]);
+export const DEPOSITOR_BURN_ROUTES: ReadonlySet<TransferRoute> = new Set(["ethereum-arc", "base-arc", "arbitrum-arc"]);
 const CREDITED_ON_MINT: ReadonlySet<TransferRoute> = new Set(["arc-solana", "hypercore-solana"]);
 export const REQUEST_EXPIRED_REASON = "the request expired before the transfer started";
 
@@ -44,7 +45,7 @@ export interface RouteAdapter {
   creditedInLedger?(transfer: BridgeTransfer, expected: bigint, since: number): Promise<boolean>;
 }
 
-export type TransferView = BridgeTransfer & { released?: boolean };
+export type TransferView = BridgeTransfer & { released?: boolean; deposit?: boolean };
 
 export type RoutePolicy = {
   destination: string;
@@ -72,6 +73,9 @@ export class BurnRefused extends Error {}
 const DOMAINS: Record<TransferRoute, [number, number]> = {
   "arc-solana": [CCTP_DOMAINS.arc, CCTP_DOMAINS.solana],
   "solana-arc": [CCTP_DOMAINS.solana, CCTP_DOMAINS.arc],
+  "ethereum-arc": [CCTP_DOMAINS.ethereum, CCTP_DOMAINS.arc],
+  "base-arc": [CCTP_DOMAINS.base, CCTP_DOMAINS.arc],
+  "arbitrum-arc": [CCTP_DOMAINS.arbitrum, CCTP_DOMAINS.arc],
   "arc-hypercore": [CCTP_DOMAINS.arc, CCTP_DOMAINS.hyperEvm],
   "hypercore-arc": [CCTP_DOMAINS.hyperEvm, CCTP_DOMAINS.arc],
   "solana-hypercore": [CCTP_DOMAINS.solana, CCTP_DOMAINS.hyperEvm],
@@ -111,6 +115,9 @@ export class TreasuryExecutor {
       return existing;
     }
 
+    if (DEPOSITOR_BURN_ROUTES.has(intent.route)) {
+      throw new RouteUnavailable(`route ${intent.route} is burned by the depositor and takes no intents`);
+    }
     const policy = this.allowedRoute(intent.route);
     const total = BigInt(intent.amount);
     if (total <= 0n) throw new IntentRejected("amount must be positive");
@@ -151,8 +158,9 @@ export class TreasuryExecutor {
   }
 
   view(transfer: BridgeTransfer): TransferView {
-    if (!this.releasesFromVault(transfer)) return transfer;
-    return { ...transfer, released: this.store.isReleased(transfer.transferId) };
+    const view: TransferView = this.store.meta(transfer.transferId)?.deposit ? { ...transfer, deposit: true } : { ...transfer };
+    if (this.releasesFromVault(transfer)) view.released = this.store.isReleased(transfer.transferId);
+    return view;
   }
 
   private releasesFromVault(transfer: BridgeTransfer): boolean {
@@ -217,7 +225,7 @@ export class TreasuryExecutor {
     }
   }
 
-  adoptBurn(input: { route: TransferRoute; burnTx: string; amount: bigint; beneficiary: string }): BridgeTransfer {
+  adoptBurn(input: { route: TransferRoute; burnTx: string; amount: bigint; beneficiary: string; maxFee?: bigint }): BridgeTransfer {
     const transferId = `${input.burnTx}:0`;
     const existing = this.store.get(transferId);
     if (existing) return existing;
@@ -230,10 +238,11 @@ export class TreasuryExecutor {
       sourceDomain,
       destinationDomain,
       grossAmount: input.amount.toString(),
-      maxFee: policy.maxFee.toString(),
+      maxFee: (input.maxFee ?? policy.maxFee).toString(),
       attester: this.attester.label,
       beneficiary: input.beneficiary,
       intentId: input.burnTx,
+      deposit: true,
     });
     return this.store.transition(transferId, "burned", { burnTx: input.burnTx });
   }

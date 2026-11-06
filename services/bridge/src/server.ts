@@ -11,6 +11,7 @@ import {
   UnavailableDeposits,
   type SolanaDepositApi,
 } from "./solana-deposit.ts";
+import { UnavailableEvmDeposits, type EvmDepositApi } from "./evm-deposit.ts";
 import {
   fundedBody,
   RequestConflict,
@@ -55,7 +56,13 @@ const prepareBody = z.object({
 });
 const submittedBody = z.object({ signature: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{64,90}$/) });
 
-const NO_SOLANA_DEPOSITS = new UnavailableDeposits("testnet", "Solana deposits are not configured on this bridge");
+const evmSubmittedBody = z.object({
+  domain: z.number().int().nonnegative(),
+  txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+});
+
+const NO_EVM_DEPOSITS = new UnavailableEvmDeposits("Deposits from Ethereum networks are not configured on this bridge");
+const NO_SOLANA_DEPOSITS =new UnavailableDeposits("testnet", "Solana deposits are not configured on this bridge");
 
 export function transferEvent(transfer: BridgeTransfer): FlowEvent {
   return { kind: "transfer", at: transfer.updatedAt, transfer };
@@ -156,7 +163,22 @@ function handleTransfers(req: IncomingMessage, res: ServerResponse, url: URL, st
   return false;
 }
 
-async function handleDeposits(req: IncomingMessage, res: ServerResponse, url: URL, solanaDeposits: SolanaDepositApi): Promise<boolean> {
+async function handleDeposits(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  solanaDeposits: SolanaDepositApi,
+  evmDeposits: EvmDepositApi,
+): Promise<boolean> {
+  if (req.method === "GET" && url.pathname === "/v1/deposits/evm/status") {
+    json(res, 200, evmDeposits.status());
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/v1/deposits/evm/submitted") {
+    const { domain, txHash } = await readBody(req, evmSubmittedBody);
+    json(res, 202, { transfer: await evmDeposits.register(domain, txHash) });
+    return true;
+  }
   if (req.method === "GET" && url.pathname === "/v1/deposits/solana/status") {
     json(res, 200, solanaDeposits.status());
     return true;
@@ -193,6 +215,7 @@ export function createBridgeServer(
   solanaDeposits: SolanaDepositApi = NO_SOLANA_DEPOSITS,
   apiToken?: string,
   rebalance?: RebalanceApi,
+  evmDeposits: EvmDepositApi = NO_EVM_DEPOSITS,
 ): Server {
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -217,7 +240,7 @@ export function createBridgeServer(
         const { amount } = await readBody(req, devDepositBody);
         return json(res, 202, devDeposit(amount === undefined ? undefined : BigInt(amount)));
       }
-      if (await handleDeposits(req, res, url, solanaDeposits)) return;
+      if (await handleDeposits(req, res, url, solanaDeposits, evmDeposits)) return;
       if (req.method === "GET" && url.pathname === "/events") return streamEvents(req, res, store);
       return json(res, 404, { error: "not found" });
     } catch (error) {

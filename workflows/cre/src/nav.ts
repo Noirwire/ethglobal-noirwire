@@ -57,6 +57,7 @@ function transferValue(transfer: BridgeTransferView): bigint {
 }
 
 function isInTransit(transfer: BridgeTransferView): boolean {
+  if (transfer.deposit === true) return false;
   if (SETTLED_TRANSFER_STATES.has(transfer.state)) return false;
   if (transfer.released !== undefined) return transfer.released;
   return transfer.state !== "requested";
@@ -202,14 +203,21 @@ export function marginRatioBps(accountValueUsdc6: bigint, marginUsedUsdc6: bigin
   return (accountValueUsdc6 * BPS) / marginUsedUsdc6;
 }
 
-const ROUTE_CODE: Record<TransferRoute, number> = {
+const ROUTE_CODE = {
   "arc-hypercore": 0,
   "hypercore-arc": 1,
   "arc-solana": 2,
   "solana-arc": 3,
   "solana-hypercore": 4,
   "hypercore-solana": 5,
-};
+} as const satisfies Partial<Record<TransferRoute, number>>;
+
+export type IntentRoute = keyof typeof ROUTE_CODE;
+
+export function toIntentRoute(route: TransferRoute): IntentRoute {
+  if (!(route in ROUTE_CODE)) throw new Error(`route ${route} has no onchain intent code`);
+  return route as IntentRoute;
+}
 
 const REASON_CODE: Record<IntentReason, number> = {
   "margin-low": 0,
@@ -218,10 +226,10 @@ const REASON_CODE: Record<IntentReason, number> = {
   "solana-rebalance": 3,
 };
 
-export const routeCode = (route: TransferRoute): number => ROUTE_CODE[route];
+export const routeCode = (route: IntentRoute): number => ROUTE_CODE[route];
 export const reasonCode = (reason: IntentReason): number => REASON_CODE[reason];
 
-export function intentId(closeId: number, route: TransferRoute, amount: bigint, reason: IntentReason): `0x${string}` {
+export function intentId(closeId: number, route: IntentRoute, amount: bigint, reason: IntentReason): `0x${string}` {
   return keccak256(
     encodeAbiParameters(parseAbiParameters("uint64 closeId, uint8 route, uint256 amount, uint8 reason"), [
       BigInt(closeId),
@@ -243,7 +251,7 @@ export function planTopUp(input: {
   if (ratio === null) return null;
 
   const targetBps = BigInt(bands.targetBps);
-  let route: TransferRoute;
+  let route: IntentRoute;
   let reason: IntentReason;
   let amount: bigint;
 

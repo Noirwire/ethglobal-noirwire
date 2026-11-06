@@ -29,6 +29,7 @@ export type TransferMeta = {
   baselineBalance?: string;
   createdAt: string;
   intentId?: string;
+  deposit?: boolean;
   urgent?: boolean;
   validUntil?: string;
   release?: StepRecord;
@@ -52,6 +53,7 @@ export type NewTransfer = {
   beneficiary?: string;
   closeId?: number;
   intentId?: string;
+  deposit?: boolean;
 };
 
 export type TransferPatch = Partial<
@@ -85,8 +87,21 @@ const NEXT: Record<TransferState, readonly TransferState[]> = {
   failed: [],
 };
 
+const DEPOSIT_STATES: ReadonlySet<TransferState> = new Set([
+  "burned",
+  "attested",
+  "hook-executed",
+  "vault-credited",
+  "claimable",
+  "stuck",
+  "failed",
+]);
+
 const ROUTE_STATES: Record<TransferRoute, ReadonlySet<TransferState>> = {
   "solana-arc": new Set(["requested", "burned", "attested", "minted", "hook-executed", "vault-credited", "claimable", "credited", "stuck", "failed"]),
+  "ethereum-arc": DEPOSIT_STATES,
+  "base-arc": DEPOSIT_STATES,
+  "arbitrum-arc": DEPOSIT_STATES,
   "arc-solana": new Set(["requested", "burned", "attested", "minted", "credited", "stuck", "failed"]),
   "arc-hypercore": new Set(["requested", "burned", "attested", "minted", "forwarded", "credited", "stuck", "failed"]),
   "hypercore-arc": new Set(["requested", "burned", "attested", "minted", "credited", "stuck", "failed"]),
@@ -131,7 +146,7 @@ export class TransferStore {
       closeId: input.closeId,
       updatedAt: at,
     });
-    this.commit("create", { transfer, meta: { createdAt: at, intentId: input.intentId } });
+    this.commit("create", { transfer, meta: { createdAt: at, intentId: input.intentId, ...(input.deposit ? { deposit: true } : {}) } });
     return transfer;
   }
 

@@ -1,6 +1,6 @@
 import type { NavSnapshot, TopUpIntent } from "@noirwire/shared";
 import { decodeAbiParameters, encodeAbiParameters, parseAbiParameters, type Hex } from "viem";
-import { oldestObservedAtSec, reasonCode, routeCode } from "./nav.ts";
+import { oldestObservedAtSec, reasonCode, routeCode, toIntentRoute } from "./nav.ts";
 
 const KIND_NAV = 1;
 const KIND_TOP_UP = 2;
@@ -33,7 +33,7 @@ function encodeTopUpBody(intent: TopUpIntent): Hex {
       version: REPORT_VERSION,
       intentId: intent.intentId as Hex,
       closeId: BigInt(intent.closeId),
-      route: routeCode(intent.route),
+      route: routeCode(toIntentRoute(intent.route)),
       amount: BigInt(intent.amount),
       marginRatioBps: intent.marginRatioBps,
       reason: reasonCode(intent.reason),

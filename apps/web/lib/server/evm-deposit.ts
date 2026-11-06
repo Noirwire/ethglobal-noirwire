@@ -70,6 +70,8 @@ export async function evmSubmitted(request: Request): Promise<Reply> {
   const parsed = submittedBody.safeParse(await readJson(request));
   if (!parsed.success) return fail(400, "A source network and transaction hash are required.");
   const reply = await callBridge("POST", "/v1/deposits/evm/submitted", parsed.data);
-  if (reply.status === 404) return fail(409, "The bridge does not relay deposits from Ethereum networks yet.");
+  if (reply.status === 404 && (reply.body as { error?: string }).error === "not found") {
+    return fail(409, "The bridge does not relay deposits from Ethereum networks yet.");
+  }
   return reply;
 }

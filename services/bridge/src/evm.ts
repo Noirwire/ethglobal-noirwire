@@ -22,8 +22,8 @@ export const messageTransmitterV2Abi = parseAbi([
 export const hookExecutorAbi = parseAbi([
   "function relay(bytes message, bytes attestation)",
   "function TRANSMITTER() view returns (address)",
-  "function sourceTokenMessenger() view returns (bytes32)",
-  "function sourceBurnToken() view returns (bytes32)",
+  "function sourceTokenMessenger(uint32 domain) view returns (bytes32)",
+  "function sourceBurnToken(uint32 domain) view returns (bytes32)",
   "function localTokenMessenger() view returns (bytes32)",
   "event DepositForwarded(bytes32 indexed nonce, address indexed beneficiary, bytes32 solanaDepositor, uint256 amount)",
   "event DepositHeld(bytes32 indexed nonce, address indexed beneficiary, bytes32 solanaDepositor, uint256 amount, bytes32 reason)",

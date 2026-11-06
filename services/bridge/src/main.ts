@@ -4,6 +4,7 @@ import { IrisClient, type Attester } from "./iris.ts";
 import { DEFAULT_DEV_DEPOSIT, setupLocalArc } from "./local-arc.ts";
 import { intentWatcherWiring, type IntentWatcherWiring } from "./intent-watcher.ts";
 import { createBridgeServer, DEFAULT_BRIDGE_PORT, IntentFileWatcher, resolveApiToken, type DevDeposit } from "./server.ts";
+import { UnavailableEvmDeposits, type EvmDepositApi } from "./evm-deposit.ts";
 import { UnavailableDeposits, type SolanaDepositApi } from "./solana-deposit.ts";
 import { AcceptingFundingVerifier, RebalanceBook } from "./rebalance.ts";
 import { wireTestnet, type RebalanceWiring } from "./testnet.ts";
@@ -40,6 +41,7 @@ let attester: Attester;
 let devDeposit: DevDeposit | undefined;
 let executor: TreasuryExecutor;
 let buildSolanaDeposits: ((executor: TreasuryExecutor) => SolanaDepositApi) | undefined;
+let buildEvmDeposits: ((executor: TreasuryExecutor, store: TransferStore) => EvmDepositApi) | undefined;
 let intentWatcher: IntentWatcherWiring | undefined;
 let buildRebalance: RebalanceWiring | undefined;
 const rebalanceToken = resolveApiToken("local", env("REBALANCE_API_TOKEN"), "REBALANCE_API_TOKEN");
@@ -91,6 +93,7 @@ if (network === "local") {
   attester = iris;
   const wired = wireTestnet(env, iris, adapters, config);
   buildSolanaDeposits = wired.solanaDeposits;
+  buildEvmDeposits = wired.evmDeposits;
   intentWatcher = wired.intentWatcher;
   buildRebalance = wired.rebalance;
 }
@@ -110,6 +113,9 @@ const server = createBridgeServer(
   solanaDeposits,
   apiToken,
   rebalanceBook && { book: rebalanceBook, token: buildRebalance?.token },
+  network === "local"
+    ? new UnavailableEvmDeposits("The bridge runs on a local chain, so there is no Ethereum network to burn on.")
+    : (buildEvmDeposits?.(executor, store) ?? new UnavailableEvmDeposits("Deposits from Ethereum networks need HOOK_EXECUTOR on the bridge")),
 );
 server.listen(port, () => {
   console.log(`bridge listening on ${port}`);

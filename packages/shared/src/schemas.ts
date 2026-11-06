@@ -73,6 +73,9 @@ export type Exposure = z.infer<typeof exposure>;
 export const transferRoute = z.enum([
   "arc-solana",
   "solana-arc",
+  "ethereum-arc",
+  "base-arc",
+  "arbitrum-arc",
   "arc-hypercore",
   "hypercore-arc",
   "solana-hypercore",
@@ -122,6 +125,7 @@ export const bridgeTransfer = z.object({
   attester: z.enum(["circle-iris", "local-test-attester"]),
   closeId: z.number().int().nonnegative().optional(),
   released: z.boolean().optional(),
+  deposit: z.boolean().optional(),
   error: z.string().optional(),
   updatedAt: isoTime,
 });

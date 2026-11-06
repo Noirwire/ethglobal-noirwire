@@ -120,6 +120,7 @@ Testnet (the operator's first real burn): nothing in the test suite sends to a p
 | --- | --- |
 | `ARC_OPERATOR_KEY` | EVM key for burns and relays on Arc (required) |
 | `ARC_RPC_URL`, `ARC_USDC`, `HOOK_EXECUTOR` | Arc RPC (default `https://rpc.testnet.arc.network`), USDC (default `0x3600...0000`), deployed HookExecutor |
+| `ETHEREUM_SEPOLIA_RPC_URL`, `BASE_SEPOLIA_RPC_URL`, `ARBITRUM_SEPOLIA_RPC_URL` | source chain RPCs for EVM deposits, default the public endpoints in `@noirwire/shared`; used only when `HOOK_EXECUTOR` is set |
 | `SOLANA_KEYPAIR_PATH`, `SOLANA_RPC_URL` | JSON keypair file for the Solana maker, devnet RPC |
 | `SHARE_VAULT` | Arc `ShareVault`. Set it and `arc-hypercore` chunks are released from the vault before the burn. `ARC_OPERATOR_KEY` must be the vault operator and its address must be allowlisted on the vault with non-zero caps |
 | `NAV_RECEIVER` | Arc `NavReceiver`. Set it (requires `SHARE_VAULT`) to start the onchain intent watcher |
@@ -131,6 +132,15 @@ Testnet (the operator's first real burn): nothing in the test suite sends to a p
 | `HYPERCORE_ACCOUNT_KEY` | key that signs `hypercore-arc` and `hypercore-solana` withdrawals; `hypercore-arc` also needs `SHARE_VAULT` |
 | `RETURN_BENEFICIARY` | Arc address credited on `solana-arc` returns |
 | `DESTINATION_ALLOWLIST`, `DAILY_CAP`, `PER_TRANSFER_CAP`, `BRIDGE_JOURNAL`, `INTENT_FILE`, `IRIS_URL` | policy and plumbing |
+
+### Deposits from Ethereum networks
+
+With `HOOK_EXECUTOR` set the bridge also relays USDC burned on Ethereum Sepolia (domain 0), Arbitrum Sepolia (3) and Base Sepolia (6) with `depositForBurnWithHook`, using the same 128-byte hook data as the Solana door. Routes: `ethereum-arc`, `arbitrum-arc`, `base-arc`.
+
+- `GET /v1/deposits/evm/status` answers `{available, reason?}`.
+- `POST /v1/deposits/evm/submitted` with `{domain, txHash}` reads the burn receipt from the source chain, checks the `MessageSent` log against the HookExecutor's rules (token messenger, burn token, mint recipient, destination caller, hook data, depositor equals burn sender), and adopts it as a `burned` transfer (202). A receipt the source RPC cannot see yet is a 404 with a message naming the chain, a failed or non-deposit transaction is 422, and a repeat of the same transaction returns the existing transfer.
+- The CCTP V2 message in the source log carries no nonce. The executor takes the attested message from Iris (`/v2/messages/<domain>?transactionHash=`), records its nonce and hash, and calls `HookExecutor.relay`. The transfer journal makes the state survive a restart.
+- The deployed HookExecutor must list the source domains (the Arc testnet deploy script lists Solana and the three EVM domains).
 
 ### Vault setup for automatic top-ups
 
