@@ -1,0 +1,32 @@
+HookExecutorRelayTest
+├── when the message is shorter than a burn message
+│   └── it should revert
+├── when the message version is wrong
+│   └── it should revert
+├── when the source domain is not Solana
+│   └── it should revert
+├── when the header sender is not the configured Solana token messenger
+│   └── it should revert
+├── when the header recipient is not the configured local token messenger
+│   └── it should revert
+├── when the destination caller is not the executor
+│   └── it should revert
+├── when the burn token is not the configured USDC mint
+│   └── it should revert
+├── when the mint recipient is not the executor
+│   └── it should revert
+├── when the attestation is invalid
+│   └── it should revert and leave the nonce unprocessed
+├── when the message was already processed
+│   └── it should revert
+└── when the message is valid
+    ├── it should credit the net minted amount after the CCTP fee
+    ├── given the hook data is well formed
+    │   ├── given the deadline has passed
+    │   │   └── it should hold the USDC as a claim for the beneficiary
+    │   ├── given the vault rejects the deposit
+    │   │   └── it should hold the USDC as a claim and clear the allowance
+    │   └── given the vault accepts the deposit
+    │       └── it should record a vault deposit request for the beneficiary
+    └── given the hook data is malformed
+        └── it should quarantine the USDC under the nonce

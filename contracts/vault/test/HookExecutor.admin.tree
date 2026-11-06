@@ -1,0 +1,25 @@
+HookExecutorAdminTest
+├── given the constructor
+│   ├── when the transmitter, the usdc or the vault is zero
+│   │   └── it should revert
+│   └── when the arguments are valid
+│       └── it should store them
+├── given claim
+│   ├── when the caller has no claim
+│   │   └── it should revert
+│   └── when the caller has a claim
+│       └── it should pay it out once
+├── given releaseQuarantined
+│   ├── when the caller is not the owner
+│   │   └── it should revert
+│   ├── when the destination is zero
+│   │   └── it should revert
+│   ├── when nothing is quarantined under the nonce
+│   │   └── it should revert
+│   └── when USDC is quarantined
+│       └── it should send it to the destination once
+└── given setSourceConfig
+    ├── when the caller is not the owner
+    │   └── it should revert
+    └── when the caller is the owner
+        └── it should store the new route

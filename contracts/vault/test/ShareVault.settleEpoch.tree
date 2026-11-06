@@ -1,0 +1,35 @@
+ShareVaultSettleEpochTest
+├── when the caller is not the nav receiver
+│   └── it should revert
+├── when the close id is not the current epoch
+│   └── it should revert
+├── when the report is observed in the future
+│   └── it should revert
+├── when the report is older than the max report age
+│   └── it should revert
+├── when the liabilities consume all assets
+│   └── it should revert
+├── given the price moves beyond the deviation bound
+│   ├── given the deviation was not acknowledged
+│   │   └── it should pause requests and keep the epoch open
+│   ├── given the deviation was acknowledged
+│   │   └── it should settle and clear the acknowledgement
+│   └── given a later report is back inside the bound
+│       └── it should settle and unpause
+└── given the price is inside the deviation bound
+    ├── given the share supply is zero
+    │   └── it should price at the opening price
+    ├── given a deposit is pending after a loss
+    │   └── it should not let the late depositor capture the loss
+    ├── given a deposit is pending after a gain
+    │   └── it should not let the late depositor capture the gain
+    ├── given a redemption within the liquidity cap
+    │   └── it should pay at the close price
+    ├── given redemptions beyond the liquidity cap
+    │   └── it should fill pro rata and roll the remainder into the next epoch
+    ├── given redemptions beyond the cash held on Arc
+    │   └── it should cap the fill by the cash held
+    ├── given the price is above the high water mark
+    │   └── it should mint a performance fee in shares
+    └── given the price is below the high water mark
+        └── it should mint no fee and keep the high water mark

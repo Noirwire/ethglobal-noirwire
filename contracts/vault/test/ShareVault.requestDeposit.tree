@@ -1,0 +1,15 @@
+ShareVaultRequestDepositTest
+├── when assets is zero
+│   └── it should revert
+├── when receiver is the zero address
+│   └── it should revert
+├── given requests are paused
+│   └── it should revert
+├── given the vault is stalled
+│   └── it should revert
+└── given the vault accepts requests
+    ├── given the receiver has an older settled deposit
+    │   └── it should turn the old deposit into claimable shares
+    └── given the receiver has no older deposit
+        ├── it should pull the USDC and record it as pending in the current epoch
+        └── it should not count a direct transfer as a deposit

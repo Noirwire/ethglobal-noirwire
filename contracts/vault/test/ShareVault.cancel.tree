@@ -1,0 +1,13 @@
+ShareVaultCancelTest
+├── given cancelDeposit
+│   ├── given the caller has no pending deposit
+│   │   └── it should revert
+│   ├── given the deposit belongs to a settled epoch
+│   │   └── it should revert
+│   └── given the deposit is in the open epoch
+│       └── it should refund the USDC and clear the request
+└── given cancelRedeem
+    ├── given the caller has no pending redemption
+    │   └── it should revert
+    └── given the caller has a pending redemption
+        └── it should return the escrowed shares and clear the request

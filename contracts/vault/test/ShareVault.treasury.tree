@@ -1,0 +1,32 @@
+ShareVaultTreasuryTest
+├── given moveToVenue
+│   ├── when the caller is not the operator
+│   │   └── it should revert
+│   ├── when the destination is not allowlisted
+│   │   └── it should revert
+│   ├── when the amount is zero
+│   │   └── it should revert
+│   ├── when the amount is above the per call cap
+│   │   └── it should revert
+│   ├── when the amount is above the remaining per epoch cap
+│   │   ├── it should revert
+│   │   └── given the next epoch has started
+│   │       └── it should allow moving again
+│   ├── when the amount is above the idle assets
+│   │   └── it should revert and leave reserved and pending assets untouched
+│   └── when the amount is within every limit
+│       └── it should send the USDC and shrink the ledger
+├── given acknowledgeReturn
+│   ├── when the caller is not the operator
+│   │   └── it should revert
+│   ├── when the amount is above the surplus
+│   │   └── it should revert
+│   └── when the amount is backed by returned USDC
+│       └── it should bring it into the ledger
+└── given sweepSurplus
+    ├── when the caller is not the owner
+    │   └── it should revert
+    ├── when there is no surplus
+    │   └── it should revert
+    └── when USDC sits outside the ledger
+        └── it should move exactly the surplus and nothing from the ledger

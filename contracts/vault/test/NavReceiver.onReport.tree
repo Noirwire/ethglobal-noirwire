@@ -1,0 +1,31 @@
+NavReceiverOnReportTest
+├── when the caller is not the forwarder
+│   └── it should revert
+├── when the metadata is shorter than the workflow header
+│   └── it should revert
+├── when the workflow id does not match
+│   └── it should revert
+├── when the workflow owner does not match
+│   └── it should revert
+├── when the workflow name does not match
+│   └── it should revert
+├── given the owner disabled the identity checks
+│   └── it should accept any workflow
+├── when the report kind is unknown
+│   └── it should revert
+├── given a nav report
+│   ├── when the version is unsupported
+│   │   └── it should revert
+│   ├── when the vault rejects the settlement
+│   │   └── it should bubble the vault error up
+│   └── when the vault accepts the settlement
+│       └── it should settle the epoch and emit the report event
+└── given a top up intent
+    ├── when the version is unsupported
+    │   └── it should revert
+    ├── when the route, the reason or the amount is invalid
+    │   └── it should revert
+    ├── when the intent id was already recorded
+    │   └── it should revert
+    └── when the intent is new and valid
+        └── it should record it and emit the event

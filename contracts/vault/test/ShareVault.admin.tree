@@ -1,0 +1,20 @@
+ShareVaultAdminTest
+├── when the caller is not the owner
+│   └── it should revert for every setter and for acknowledgeDeviation
+├── given a numeric parameter setter
+│   ├── when the value is outside its bounds
+│   │   └── it should revert
+│   └── when the value is inside its bounds
+│       └── it should store it
+├── given an address setter
+│   ├── when the address must not be zero and is zero
+│   │   └── it should revert
+│   └── when the address is valid
+│       └── it should store it
+├── given the deployer constructs the vault
+│   ├── when usdc or the fee recipient is zero
+│   │   └── it should revert
+│   └── when the arguments are valid
+│       └── it should expose the share token metadata
+└── given ownership transfer
+    └── it should need the new owner to accept

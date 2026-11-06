@@ -1,0 +1,16 @@
+ShareVaultRequestRedeemTest
+├── when shares is zero
+│   └── it should revert
+├── when receiver is the zero address
+│   └── it should revert
+├── given requests are paused
+│   └── it should revert
+├── given the caller is inside the lockup
+│   ├── it should revert
+│   └── given the shares were transferred to another account
+│       └── it should revert for the new holder too
+└── given the lockup has passed
+    ├── when the shares exceed the caller balance
+    │   └── it should revert
+    └── when the shares are within the caller balance
+        └── it should escrow the shares in the vault for the current epoch

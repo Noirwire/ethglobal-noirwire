@@ -1,0 +1,23 @@
+NavReceiverAdminTest
+├── given the constructor
+│   ├── when the vault or the forwarder is zero
+│   │   └── it should revert
+│   └── when the arguments are valid
+│       └── it should store them
+├── given setForwarder
+│   ├── when the caller is not the owner
+│   │   └── it should revert
+│   ├── when the forwarder is zero
+│   │   └── it should revert
+│   └── when the forwarder is valid
+│       └── it should swap the accepted caller
+├── given setWorkflowIdentity
+│   ├── when the caller is not the owner
+│   │   └── it should revert
+│   └── when the caller is the owner
+│       └── it should store the identity
+└── given supportsInterface
+    ├── when the id is IReceiver or IERC165
+    │   └── it should return true
+    └── when the id is anything else
+        └── it should return false

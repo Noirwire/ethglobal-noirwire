@@ -1,0 +1,18 @@
+ShareVaultClaimTest
+├── given claimShares
+│   ├── given the user has nothing to claim
+│   │   └── it should revert
+│   └── given the user has a settled deposit
+│       ├── it should transfer the minted shares to the user
+│       ├── it should set the lockup from the settlement time
+│       └── given the caller is a third party
+│           └── it should still deliver the shares to the user
+├── given claimAssets
+│   ├── given the user has nothing to claim
+│   │   └── it should revert
+│   └── given the user has a settled redemption
+│       └── it should pay USDC out of the reserved assets and shrink the reserve
+└── given advanceRedeem
+    └── given a redemption that rolled over several epochs
+        ├── it should process only the requested number of epochs
+        └── it should accumulate claimable assets
