@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { flowEvent, topUpIntent, type BridgeTransfer, type FlowEvent } from "@noirwire/shared";
 import { z } from "zod";
-import { IntentRejected, type TreasuryExecutor } from "./executor.ts";
+import { IntentForbidden, IntentRejected, type TreasuryExecutor } from "./executor.ts";
 import {
   DepositRefused,
   DepositUnavailable,
@@ -52,6 +52,7 @@ export function transferEvent(transfer: BridgeTransfer): FlowEvent {
 
 function knownError(res: ServerResponse, error: unknown): boolean {
   if (error instanceof BadRequest) json(res, 400, { error: error.message });
+  else if (error instanceof IntentForbidden) json(res, 403, { error: error.message });
   else if (error instanceof DepositUnavailable) json(res, 409, { error: error.message });
   else if (error instanceof TransactionNotFound) json(res, 404, { error: error.message });
   else if (error instanceof DepositRefused || error instanceof IntentRejected) json(res, 422, { error: error.message });
@@ -107,7 +108,7 @@ export function createBridgeServer(
         return transfer ? json(res, 200, executor.view(transfer)) : json(res, 404, { error: "unknown transfer" });
       }
       if (req.method === "POST" && url.pathname === "/v1/intents") {
-        const transfers = executor.submit(await readBody(req, topUpIntent));
+        const transfers = executor.submitExternal(await readBody(req, topUpIntent));
         void executor.tick();
         return json(res, 202, { transfers });
       }
@@ -168,7 +169,7 @@ export class IntentFileWatcher {
       try {
         const event = flowEvent.parse(JSON.parse(line));
         if (event.kind === "intent") {
-          this.executor.submit(event.intent);
+          this.executor.submitExternal(event.intent);
           accepted++;
         }
       } catch (error) {
