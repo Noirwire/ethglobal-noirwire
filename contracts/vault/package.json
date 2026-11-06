@@ -1,0 +1,13 @@
+{
+  "name": "@noirwire/contracts-vault",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "lint": "solhint 'src/**/*.sol' 'script/**/*.sol' 'test/**/*.sol'"
+  },
+  "devDependencies": {
+    "solhint": "6.2.5"
+  }
+}
