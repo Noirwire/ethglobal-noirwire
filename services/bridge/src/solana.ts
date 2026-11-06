@@ -9,7 +9,7 @@ import {
   sendAndConfirmTransaction,
   type AccountMeta,
 } from "@solana/web3.js";
-import { hexToBytes, type Hex } from "viem";
+import { bytesToHex, hexToBytes, type Hex } from "viem";
 import messageTransmitterIdl from "../idl/message_transmitter_v2.json" with { type: "json" };
 import tokenMessengerMinterIdl from "../idl/token_messenger_minter_v2.json" with { type: "json" };
 import { SOLANA_DEVNET_USDC_MINT } from "./addresses.ts";
@@ -112,6 +112,38 @@ export function encodeBurnData(params: Omit<SolanaBurnParams, "owner" | "burnTok
   }
   return Buffer.concat([Buffer.from(burnWithHookIx.discriminator), ...head, borshBytes(hexToBytes(params.hookData))]);
 }
+
+export type DecodedBurnWithHook = {
+  amount: bigint;
+  destinationDomain: number;
+  mintRecipient: Hex;
+  destinationCaller: Hex;
+  maxFee: bigint;
+  minFinalityThreshold: number;
+  hookData: Hex;
+};
+
+const WORD_BYTES = 32;
+
+export function decodeBurnWithHookData(data: Uint8Array): DecodedBurnWithHook | undefined {
+  const buffer = Buffer.from(data);
+  const discriminator = Buffer.from(burnWithHookIx.discriminator);
+  if (buffer.length < 8 + 8 + 4 + 2 * WORD_BYTES + 8 + 4 + 4) return undefined;
+  if (!buffer.subarray(0, 8).equals(discriminator)) return undefined;
+  const hookLength = buffer.readUInt32LE(96);
+  if (buffer.length !== 100 + hookLength) return undefined;
+  return {
+    amount: buffer.readBigUInt64LE(8),
+    destinationDomain: buffer.readUInt32LE(16),
+    mintRecipient: bytesToHex(buffer.subarray(20, 52)),
+    destinationCaller: bytesToHex(buffer.subarray(52, 84)),
+    maxFee: buffer.readBigUInt64LE(84),
+    minFinalityThreshold: buffer.readUInt32LE(92),
+    hookData: bytesToHex(buffer.subarray(100)),
+  };
+}
+
+export const BURN_WITH_HOOK_OWNER_INDEX = burnWithHookIx.accounts.findIndex((account) => account.name === "owner");
 
 function metasFor(instruction: IdlInstruction, resolved: Record<string, PublicKey>): AccountMeta[] {
   return instruction.accounts.map((account) => {

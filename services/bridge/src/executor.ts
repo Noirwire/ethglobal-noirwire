@@ -107,6 +107,40 @@ export class TreasuryExecutor {
     return created;
   }
 
+  checkDeposit(route: TransferRoute, amount: bigint): void {
+    const policy = this.config.routes[route];
+    if (!policy || !this.adapters[route]) throw new IntentRejected(`route ${route} is not supported`);
+    if (!this.config.allowlist.has(policy.destination.toLowerCase())) {
+      throw new IntentRejected(`destination ${policy.destination} is not on the allowlist`);
+    }
+    if (amount <= policy.maxFee) throw new IntentRejected(`amount must be above the ${policy.maxFee} base unit fee ceiling`);
+    const cap = policy.perTransferCap ?? this.config.defaultPerTransferCap;
+    if (amount > cap) throw new IntentRejected(`amount is above the per-transfer cap of ${cap} base units`);
+    const today = this.now().toISOString().slice(0, 10);
+    if (this.store.createdAmountOnDay(today) + amount > this.config.dailyCap) throw new IntentRejected("daily cap exceeded");
+  }
+
+  adoptBurn(input: { route: TransferRoute; burnTx: string; amount: bigint; beneficiary: string }): BridgeTransfer {
+    const transferId = `${input.burnTx}:0`;
+    const existing = this.store.get(transferId);
+    if (existing) return existing;
+    const policy = this.config.routes[input.route];
+    if (!policy) throw new IntentRejected(`route ${input.route} is not supported`);
+    const [sourceDomain, destinationDomain] = DOMAINS[input.route];
+    this.store.create({
+      transferId,
+      route: input.route,
+      sourceDomain,
+      destinationDomain,
+      grossAmount: input.amount.toString(),
+      maxFee: policy.maxFee.toString(),
+      attester: this.attester.label,
+      beneficiary: input.beneficiary,
+      intentId: input.burnTx,
+    });
+    return this.store.transition(transferId, "burned", { burnTx: input.burnTx });
+  }
+
   pending(): { transferId: string; reason: string }[] {
     return [...this.pendingReasons].map(([transferId, reason]) => ({ transferId, reason }));
   }

@@ -3,6 +3,7 @@ import { TreasuryExecutor, type ExecutorConfig, type RouteAdapter } from "./exec
 import { IrisClient, type Attester } from "./iris.ts";
 import { DEFAULT_DEV_DEPOSIT, setupLocalArc } from "./local-arc.ts";
 import { createBridgeServer, DEFAULT_BRIDGE_PORT, IntentFileWatcher, type DevDeposit } from "./server.ts";
+import { UnavailableDeposits, type SolanaDepositApi } from "./solana-deposit.ts";
 import { wireTestnet } from "./testnet.ts";
 import { TransferStore } from "./transfers.ts";
 
@@ -35,6 +36,8 @@ const config: ExecutorConfig = {
 let attester: Attester;
 let devDeposit: DevDeposit | undefined;
 let executor: TreasuryExecutor;
+let buildSolanaDeposits: ((executor: TreasuryExecutor) => SolanaDepositApi) | undefined;
+const LOCAL_DEPOSIT_REASON = "The bridge runs on a local chain, so there is no Solana burn to sign. Use the local simulation instead.";
 
 if (network === "local") {
   const rpcUrl = env("ARC_RPC_URL") ?? LOCAL_NETWORKS.arcLocal.rpcUrl;
@@ -55,12 +58,17 @@ if (network === "local") {
 } else {
   const iris = new IrisClient(env("IRIS_URL"));
   attester = iris;
-  wireTestnet(env, iris, adapters, config);
+  buildSolanaDeposits = wireTestnet(env, iris, adapters, config).solanaDeposits;
 }
 
 executor = new TreasuryExecutor(store, attester, adapters, config);
+const solanaDeposits =
+  network === "local"
+    ? new UnavailableDeposits("local", LOCAL_DEPOSIT_REASON)
+    : (buildSolanaDeposits?.(executor) ??
+      new UnavailableDeposits("testnet", "Solana deposits need SOLANA_KEYPAIR_PATH and HOOK_EXECUTOR on the bridge"));
 const port = Number(env("BRIDGE_PORT") ?? DEFAULT_BRIDGE_PORT);
-const server = createBridgeServer(store, executor, devDeposit);
+const server = createBridgeServer(store, executor, devDeposit, solanaDeposits);
 server.listen(port, () => console.log(`bridge listening on ${port}`));
 
 const intentFile = env("INTENT_FILE");

@@ -6,11 +6,12 @@ import { privateKeyToAccount } from "viem/accounts";
 import { ARC_TESTNET_USDC, CIRCLE_TESTNET, SOLANA_DEVNET_USDC_MINT } from "./addresses.ts";
 import { ArcHypercoreAdapter, ArcSolanaAdapter, SolanaArcAdapter } from "./adapters.ts";
 import { EvmDriver } from "./evm.ts";
-import type { ExecutorConfig, RouteAdapter } from "./executor.ts";
+import type { ExecutorConfig, RouteAdapter, TreasuryExecutor } from "./executor.ts";
 import { VAULT_HOOK_DEADLINE_SECONDS } from "./hooks.ts";
 import { HyperliquidInfoReader } from "./hyperliquid.ts";
 import type { IrisClient } from "./iris.ts";
 import { SolanaDriver } from "./solana.ts";
+import { ConnectionReader, SolanaDeposits, type SolanaDepositApi } from "./solana-deposit.ts";
 
 const DEFAULT_HYPERCORE_MAX_FEE = "300000";
 const DEFAULT_SOLANA_MAX_FEE = "100000";
@@ -20,7 +21,8 @@ export function wireTestnet(
   iris: IrisClient,
   adapters: Partial<Record<TransferRoute, RouteAdapter>>,
   config: ExecutorConfig,
-): void {
+): { solanaDeposits?: (executor: TreasuryExecutor) => SolanaDepositApi } {
+  let solanaDeposits: ((executor: TreasuryExecutor) => SolanaDepositApi) | undefined;
   const operatorKey = env("ARC_OPERATOR_KEY");
   if (!operatorKey) throw new Error("ARC_OPERATOR_KEY is required");
 
@@ -76,10 +78,16 @@ export function wireTestnet(
         solanaDepositor: bytesToHex(keypair.publicKey.toBytes()),
         deadlineSeconds: VAULT_HOOK_DEADLINE_SECONDS,
       });
-      config.routes["solana-arc"] = {
-        destination: hookExecutor,
-        maxFee: BigInt(env("SOLANA_ARC_MAX_FEE") ?? DEFAULT_SOLANA_MAX_FEE),
-      };
+      const maxFee = BigInt(env("SOLANA_ARC_MAX_FEE") ?? DEFAULT_SOLANA_MAX_FEE);
+      config.routes["solana-arc"] = { destination: hookExecutor, maxFee };
+      solanaDeposits = (executor) =>
+        new SolanaDeposits(new ConnectionReader(solana.connection), executor, {
+          hookExecutor,
+          usdcMint: solana.usdcMint,
+          maxFee,
+          deadlineSeconds: VAULT_HOOK_DEADLINE_SECONDS,
+        });
     }
   }
+  return { solanaDeposits };
 }

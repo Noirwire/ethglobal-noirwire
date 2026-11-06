@@ -3,6 +3,13 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { flowEvent, topUpIntent, type BridgeTransfer, type FlowEvent } from "@noirwire/shared";
 import { z } from "zod";
 import { IntentRejected, type TreasuryExecutor } from "./executor.ts";
+import {
+  DepositRefused,
+  DepositUnavailable,
+  TransactionNotFound,
+  UnavailableDeposits,
+  type SolanaDepositApi,
+} from "./solana-deposit.ts";
 import type { TransferStore } from "./transfers.ts";
 
 export const DEFAULT_BRIDGE_PORT = 8702;
@@ -25,11 +32,33 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   return text.trim() ? JSON.parse(text) : {};
 }
 
+const prepareBody = z.object({
+  owner: z.string().min(32).max(44),
+  amount: z.string().regex(/^[1-9]\d*$/),
+  beneficiary: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+});
+const submittedBody = z.object({ signature: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{64,90}$/) });
+
+const NO_SOLANA_DEPOSITS = new UnavailableDeposits("testnet", "Solana deposits are not configured on this bridge");
+
 export function transferEvent(transfer: BridgeTransfer): FlowEvent {
   return { kind: "transfer", at: transfer.updatedAt, transfer };
 }
 
-export function createBridgeServer(store: TransferStore, executor: TreasuryExecutor, devDeposit?: DevDeposit): Server {
+function depositError(res: ServerResponse, error: unknown): boolean {
+  if (error instanceof DepositUnavailable) json(res, 409, { error: error.message });
+  else if (error instanceof TransactionNotFound) json(res, 404, { error: error.message });
+  else if (error instanceof DepositRefused || error instanceof IntentRejected) json(res, 422, { error: error.message });
+  else return false;
+  return true;
+}
+
+export function createBridgeServer(
+  store: TransferStore,
+  executor: TreasuryExecutor,
+  devDeposit?: DevDeposit,
+  solanaDeposits: SolanaDepositApi = NO_SOLANA_DEPOSITS,
+): Server {
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     try {
@@ -59,6 +88,19 @@ export function createBridgeServer(store: TransferStore, executor: TreasuryExecu
         const result = devDeposit(parsed.data.amount === undefined ? undefined : BigInt(parsed.data.amount));
         return json(res, 202, result);
       }
+      if (req.method === "GET" && url.pathname === "/v1/deposits/solana/status") {
+        return json(res, 200, solanaDeposits.status());
+      }
+      if (req.method === "POST" && url.pathname === "/v1/deposits/solana/prepare") {
+        const parsed = prepareBody.safeParse(await readBody(req));
+        if (!parsed.success) return json(res, 400, { error: parsed.error.message });
+        return json(res, 200, await solanaDeposits.prepare({ ...parsed.data, amount: BigInt(parsed.data.amount) }));
+      }
+      if (req.method === "POST" && url.pathname === "/v1/deposits/solana/submitted") {
+        const parsed = submittedBody.safeParse(await readBody(req));
+        if (!parsed.success) return json(res, 400, { error: parsed.error.message });
+        return json(res, 202, { transfer: await solanaDeposits.register(parsed.data.signature) });
+      }
       if (req.method === "GET" && url.pathname === "/events") {
         res.writeHead(200, {
           "content-type": "text/event-stream",
@@ -73,7 +115,7 @@ export function createBridgeServer(store: TransferStore, executor: TreasuryExecu
       }
       return json(res, 404, { error: "not found" });
     } catch (error) {
-      if (error instanceof IntentRejected) return json(res, 422, { error: error.message });
+      if (depositError(res, error)) return;
       return json(res, 500, { error: error instanceof Error ? error.message : "internal error" });
     }
   });
