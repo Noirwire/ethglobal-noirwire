@@ -25,6 +25,21 @@ Unconfirmed until one live run: the forwarding fee quote (Iris `forwardFee.med`)
 
 `arc-hypercore` credit is confirmed by a matching ledger entry; an `accountValue` rise alone only changes the pending reason. This is pending one live confirmation of the ledger type.
 
+Two more routes serve the house maker's collateral rebalancing and never release from the vault:
+
+| Route | Meaning |
+| --- | --- |
+| `solana-hypercore` | Maker surplus. The maker sends USDC to the bridge's Solana token account, the bridge burns it with a forward hook to HyperCore (Circle forwarding service credits it). |
+| `hypercore-solana` | Maker shortfall. One signed `sendToEvmWithData` to the Solana domain (5) with the maker's token account as base58 recipient, then `receive_message` on Solana. |
+
+`POST /v1/rebalance/requests` (bearer `REBALANCE_API_TOKEN`, separate from `BRIDGE_API_TOKEN`; the endpoints exist only when it is set) takes `{requestId, direction: "out"|"in", amount, requestedAt, validUntil, seq}` and answers 202 `{bridgeAta}`, 409 for a reused id with other terms, 422 for an invalid or already expired request; it is idempotent on `requestId`. `GET /v1/rebalance/requests/:id` answers `{state}`: `awaiting-funds`, `verifying-funds`, `in-progress`, `credited` (out done), `wallet-credited` (in done), `failed`, `expired`. `POST /v1/rebalance/requests/:id/funded` takes `{signature}`; the bridge reads that Solana transaction and burns only if the bridge token account received at least `amount` of USDC from it (each signature serves one request; a funding transaction not found within 10 minutes fails the request). An `out` request that was never funded by `validUntil` is `expired`; an `in` request that could not start by `validUntil` ends `expired`.
+
+At most one HyperCore transfer (all four HyperCore routes) is in flight at a time; an intent with reason `margin-urgent` starts before queued ones.
+
+Env: `REBALANCE_API_TOKEN`, `REBALANCE_MAKER_OWNER` (Solana owner of the maker token account, required for `hypercore-solana`), `REBALANCE_JOURNAL`, `SOLANA_HYPERCORE_MAX_FEE`, `HYPERCORE_SOLANA_MAX_FEE`. Add the HyperCore recipient and the maker token account to `DESTINATION_ALLOWLIST`.
+
+Not built: the deposit into the maker's order book seat. A transfer in lands in the maker's own USDC token account and reports `wallet-credited`, which the maker does not count as credited. Unconfirmed live: that Circle's HyperCore withdrawal path accepts Solana as destination domain.
+
 Routes that release from the vault (`arc-hypercore` while `SHARE_VAULT` is set) accept intents only from the onchain watcher: `POST /v1/intents` answers 403 and `INTENT_FILE` lines are skipped. `INTENT_FILE` is read in local mode only.
 
 ## Automatic rebalancing

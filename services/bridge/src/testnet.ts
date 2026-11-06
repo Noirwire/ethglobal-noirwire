@@ -4,9 +4,12 @@ import { NETWORKS, type TransferRoute } from "@noirwire/shared";
 import { bytesToHex, createPublicClient, createWalletClient, defineChain, erc20Abi, http, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { ARC_TESTNET_USDC, CIRCLE_TESTNET, CORE_DEPOSIT_WALLET_TESTNET, SOLANA_DEVNET_USDC_MINT } from "./addresses.ts";
-import { HypercoreArcAdapter, IrisReturnFees, ViemHyperEvmBurns } from "./hypercore-arc.ts";
+import { HypercoreArcAdapter, HypercoreSolanaAdapter, IrisReturnFees, ViemHyperEvmBurns } from "./hypercore-arc.ts";
 import { DEFAULT_RETURN_GAS_LIMIT, HttpHyperliquidExchange } from "./hyperliquid-withdraw.ts";
-import { ArcHypercoreAdapter, ArcSolanaAdapter, SolanaArcAdapter } from "./adapters.ts";
+import { ArcHypercoreAdapter, ArcSolanaAdapter, SolanaArcAdapter, SolanaHypercoreAdapter } from "./adapters.ts";
+import { RebalanceBook, SolanaFundingVerifier } from "./rebalance.ts";
+import { resolveApiToken } from "./server.ts";
+import type { TransferStore } from "./transfers.ts";
 import { EvmDriver } from "./evm.ts";
 import type { ExecutorConfig, RouteAdapter, TreasuryExecutor } from "./executor.ts";
 import { VAULT_HOOK_DEADLINE_SECONDS } from "./hooks.ts";
@@ -16,6 +19,8 @@ import { IRIS_SANDBOX_URL, type IrisClient } from "./iris.ts";
 import { VaultTreasury, ViemVaultChain } from "./vault.ts";
 import { SolanaDriver } from "./solana.ts";
 import { ConnectionReader, SolanaDeposits, type SolanaDepositApi } from "./solana-deposit.ts";
+
+export type RebalanceWiring = { token?: string; build: (executor: TreasuryExecutor, store: TransferStore) => RebalanceBook };
 
 const DEFAULT_HYPERCORE_MAX_FEE = "300000";
 const DEFAULT_SOLANA_MAX_FEE = "100000";
@@ -34,7 +39,9 @@ export function wireTestnet(
 ): {
   solanaDeposits?: (executor: TreasuryExecutor) => SolanaDepositApi;
   intentWatcher?: { build: (executor: TreasuryExecutor) => OnchainIntentWatcher; pollMs: number };
+  rebalance?: RebalanceWiring;
 } {
+  let rebalance: RebalanceWiring | undefined;
   let solanaDeposits: ((executor: TreasuryExecutor) => SolanaDepositApi) | undefined;
   let intentWatcher: { build: (executor: TreasuryExecutor) => OnchainIntentWatcher; pollMs: number } | undefined;
   const operatorKey = env("ARC_OPERATOR_KEY");
@@ -104,16 +111,16 @@ export function wireTestnet(
       maxFee: BigInt(env("HYPERCORE_MAX_FEE") ?? DEFAULT_HYPERCORE_MAX_FEE),
     };
   }
+  const hyperEvm = createPublicClient({
+    chain: defineChain({
+      id: NETWORKS.hyperEvmTestnet.chainId,
+      name: "HyperEVM Testnet",
+      nativeCurrency: { name: "HYPE", symbol: "HYPE", decimals: 18 },
+      rpcUrls: { default: { http: [env("HYPEREVM_RPC_URL") ?? NETWORKS.hyperEvmTestnet.rpcUrl] } },
+    }),
+    transport: http(),
+  });
   if (hyperCoreAccount && shareVault) {
-    const hyperEvm = createPublicClient({
-      chain: defineChain({
-        id: NETWORKS.hyperEvmTestnet.chainId,
-        name: "HyperEVM Testnet",
-        nativeCurrency: { name: "HYPE", symbol: "HYPE", decimals: 18 },
-        rpcUrls: { default: { http: [env("HYPEREVM_RPC_URL") ?? NETWORKS.hyperEvmTestnet.rpcUrl] } },
-      }),
-      transport: http(),
-    });
     adapters["hypercore-arc"] = new HypercoreArcAdapter({
       account: hyperCoreAccount,
       vault: shareVault,
@@ -145,6 +152,53 @@ export function wireTestnet(
       new PublicKey(SOLANA_DEVNET_USDC_MINT),
     );
     const makerTokenAccount = solana.tokenAccount();
+    const reader = new HyperliquidInfoReader(NETWORKS.hyperliquidTestnetApi.infoUrl);
+    if (hyperCoreRecipient) {
+      adapters["solana-hypercore"] = new SolanaHypercoreAdapter(solana, iris, {
+        forwarder: CIRCLE_TESTNET.hyperEvmCctpForwarder,
+        recipient: hyperCoreRecipient,
+        reader,
+        ledger,
+        match,
+      });
+      config.routes["solana-hypercore"] = {
+        destination: hyperCoreRecipient,
+        maxFee: BigInt(env("SOLANA_HYPERCORE_MAX_FEE") ?? DEFAULT_HYPERCORE_MAX_FEE),
+      };
+    }
+    const makerOwner = env("REBALANCE_MAKER_OWNER");
+    if (hyperCoreAccount && makerOwner) {
+      const owner = new PublicKey(makerOwner);
+      adapters["hypercore-solana"] = new HypercoreSolanaAdapter({
+        account: hyperCoreAccount,
+        coreDepositWallet,
+        hyperliquidChain: "Testnet",
+        sourceDex: env("HYPERCORE_SOURCE_DEX") === "spot" ? "spot" : "",
+        gasLimit: Number(env("HYPERCORE_RETURN_GAS_LIMIT") ?? DEFAULT_RETURN_GAS_LIMIT),
+        match,
+        exchange: new HttpHyperliquidExchange(NETWORKS.hyperliquidTestnetApi.exchangeUrl),
+        ledger,
+        burns: new ViemHyperEvmBurns(hyperEvm, CIRCLE_TESTNET.tokenMessengerV2),
+        iris,
+        solana,
+        makerOwner: owner,
+      });
+      config.routes["hypercore-solana"] = {
+        destination: solana.tokenAccount(owner).toBase58(),
+        maxFee: BigInt(env("HYPERCORE_SOLANA_MAX_FEE") ?? DEFAULT_RETURN_MAX_FEE),
+      };
+    }
+    if (env("REBALANCE_API_TOKEN")) {
+      rebalance = {
+        token: resolveApiToken("testnet", env("REBALANCE_API_TOKEN"), "REBALANCE_API_TOKEN"),
+        build: (executor, store) =>
+          new RebalanceBook(executor, store, {
+            bridgeAta: makerTokenAccount.toBase58(),
+            verifier: new SolanaFundingVerifier(solana.connection, solana.usdcMint),
+            journalPath: env("REBALANCE_JOURNAL") ?? "./data/rebalance.ndjson",
+          }),
+      };
+    }
     adapters["arc-solana"] = new ArcSolanaAdapter(evm, solana, { makerTokenAccount });
     config.routes["arc-solana"] = { destination: makerTokenAccount.toBase58(), maxFee: BigInt(env("SOLANA_MAX_FEE") ?? DEFAULT_SOLANA_MAX_FEE) };
     if (hookExecutor) {
@@ -166,5 +220,5 @@ export function wireTestnet(
         });
     }
   }
-  return { solanaDeposits, intentWatcher };
+  return { solanaDeposits, intentWatcher, rebalance };
 }

@@ -9,22 +9,86 @@ import type { Attester } from "./iris.ts";
 import { addressToBytes32, decodeBurnBody, decodeMessage, FINALITY_FAST, ZERO_BYTES32 } from "./message.ts";
 import type { SolanaDriver } from "./solana.ts";
 
-export class ArcHypercoreAdapter implements RouteAdapter {
+export type HypercoreForwardOptions = {
+  forwarder: Hex;
+  recipient: Hex;
+  reader: HyperCoreReader;
+  ledger: HyperCoreLedger;
+  match: LedgerMatchConfig;
+};
+
+abstract class HypercoreForwardAdapter implements RouteAdapter {
   constructor(
-    private readonly evm: EvmDriver,
-    private readonly iris: Attester,
-    private readonly options: {
-      forwarder: Hex;
-      recipient: Hex;
-      reader: HyperCoreReader;
-      ledger: HyperCoreLedger;
-      match: LedgerMatchConfig;
-    },
+    protected readonly iris: Attester,
+    protected readonly options: HypercoreForwardOptions,
   ) {}
+
+  abstract burn(transfer: BridgeTransfer): Promise<{ burnTx: string }>;
+  abstract messageFor(transfer: BridgeTransfer): Promise<Hex | undefined>;
 
   async creditedInLedger(_transfer: BridgeTransfer, expected: bigint, since: number): Promise<boolean> {
     const entries = await this.options.ledger.entries(this.options.recipient, since);
     return entries.some((entry) => matchesCredit(entry, this.options.match, this.options.recipient, expected, since));
+  }
+
+  async deliver(transfer: BridgeTransfer): Promise<DeliverResult> {
+    const result = await this.iris.fetchAttestation({
+      sourceDomain: transfer.sourceDomain,
+      txHash: transfer.burnTx as string,
+    });
+    if (result.forward?.state === "COMPLETE") {
+      return { status: "done", state: "forwarded", tx: result.forward.mintTxHash };
+    }
+    if (result.forward?.state === "FAILED") return { status: "pending", reason: "Circle forwarder reported a failure" };
+    return { status: "pending", reason: "waiting for the Circle forwarder" };
+  }
+
+  destinationBalance(): Promise<bigint> {
+    return this.options.reader.balance(this.options.recipient);
+  }
+}
+
+export class SolanaHypercoreAdapter extends HypercoreForwardAdapter {
+  constructor(
+    private readonly solana: SolanaDriver,
+    iris: Attester,
+    options: HypercoreForwardOptions,
+  ) {
+    super(iris, options);
+  }
+
+  async preflight(transfer: BridgeTransfer): Promise<string | undefined> {
+    const balance = await this.solana.usdcBalance();
+    const amount = BigInt(transfer.grossAmount);
+    return balance < amount ? `the bridge Solana account holds ${balance} base units, less than the ${amount} to burn` : undefined;
+  }
+
+  async burn(transfer: BridgeTransfer): Promise<{ burnTx: string }> {
+    const forwarder = addressToBytes32(this.options.forwarder);
+    const { signature } = await this.solana.burn({
+      amount: BigInt(transfer.grossAmount),
+      destinationDomain: CCTP_DOMAINS.hyperEvm,
+      mintRecipient: forwarder,
+      destinationCaller: forwarder,
+      maxFee: BigInt(transfer.maxFee),
+      minFinalityThreshold: FINALITY_FAST,
+      hookData: encodeForwardHookData(this.options.recipient, HYPERCORE_DEX.perps),
+    });
+    return { burnTx: signature };
+  }
+
+  async messageFor(): Promise<Hex | undefined> {
+    return undefined;
+  }
+}
+
+export class ArcHypercoreAdapter extends HypercoreForwardAdapter {
+  constructor(
+    private readonly evm: EvmDriver,
+    iris: Attester,
+    options: HypercoreForwardOptions,
+  ) {
+    super(iris, options);
   }
 
   async burn(transfer: BridgeTransfer): Promise<{ burnTx: string }> {
@@ -43,22 +107,6 @@ export class ArcHypercoreAdapter implements RouteAdapter {
 
   messageFor(transfer: BridgeTransfer): Promise<Hex | undefined> {
     return this.evm.messageFromBurn(transfer.burnTx as Hex);
-  }
-
-  async deliver(transfer: BridgeTransfer): Promise<DeliverResult> {
-    const result = await this.iris.fetchAttestation({
-      sourceDomain: transfer.sourceDomain,
-      txHash: transfer.burnTx as string,
-    });
-    if (result.forward?.state === "COMPLETE") {
-      return { status: "done", state: "forwarded", tx: result.forward.mintTxHash };
-    }
-    if (result.forward?.state === "FAILED") return { status: "pending", reason: "Circle forwarder reported a failure" };
-    return { status: "pending", reason: "waiting for the Circle forwarder" };
-  }
-
-  destinationBalance(): Promise<bigint> {
-    return this.options.reader.balance(this.options.recipient);
   }
 }
 

@@ -28,6 +28,8 @@ export type TransferMeta = {
   baselineBalance?: string;
   createdAt: string;
   intentId?: string;
+  urgent?: boolean;
+  validUntil?: string;
   release?: StepRecord;
   acknowledge?: StepRecord;
   withdraw?: StepRecord;
@@ -87,6 +89,8 @@ const ROUTE_STATES: Record<TransferRoute, ReadonlySet<TransferState>> = {
   "arc-solana": new Set(["requested", "burned", "attested", "minted", "credited", "stuck", "failed"]),
   "arc-hypercore": new Set(["requested", "burned", "attested", "minted", "forwarded", "credited", "stuck", "failed"]),
   "hypercore-arc": new Set(["requested", "burned", "attested", "minted", "credited", "stuck", "failed"]),
+  "solana-hypercore": new Set(["requested", "burned", "attested", "forwarded", "credited", "stuck", "failed"]),
+  "hypercore-solana": new Set(["requested", "burned", "attested", "minted", "credited", "stuck", "failed"]),
 };
 
 export type StateTimeouts = Partial<Record<TransferState, number>>;

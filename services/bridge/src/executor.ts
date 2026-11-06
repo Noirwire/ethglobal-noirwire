@@ -7,7 +7,14 @@ import type { StepLog, VaultPort } from "./vault.ts";
 
 export const HYPERCORE_MAX_PER_TRANSFER = 1_000_000_000n;
 const RELEASED_FROM_VAULT: ReadonlySet<TransferRoute> = new Set(["arc-hypercore"]);
-const SERIALIZED_ROUTES: ReadonlySet<TransferRoute> = new Set(["arc-hypercore", "hypercore-arc"]);
+const SERIALIZED_ROUTES: ReadonlySet<TransferRoute> = new Set([
+  "arc-hypercore",
+  "hypercore-arc",
+  "solana-hypercore",
+  "hypercore-solana",
+]);
+const CREDITED_ON_MINT: ReadonlySet<TransferRoute> = new Set(["arc-solana", "hypercore-solana"]);
+export const REQUEST_EXPIRED_REASON = "the request expired before the transfer started";
 
 export type DeliverResult =
   | { status: "done"; state: "minted" | "hook-executed" | "forwarded"; tx?: string }
@@ -57,6 +64,8 @@ const DOMAINS: Record<TransferRoute, [number, number]> = {
   "solana-arc": [CCTP_DOMAINS.solana, CCTP_DOMAINS.arc],
   "arc-hypercore": [CCTP_DOMAINS.arc, CCTP_DOMAINS.hyperEvm],
   "hypercore-arc": [CCTP_DOMAINS.hyperEvm, CCTP_DOMAINS.arc],
+  "solana-hypercore": [CCTP_DOMAINS.solana, CCTP_DOMAINS.hyperEvm],
+  "hypercore-solana": [CCTP_DOMAINS.hyperEvm, CCTP_DOMAINS.solana],
 };
 
 export type StepResult = { changed: boolean; pending?: string };
@@ -64,6 +73,7 @@ export type StepResult = { changed: boolean; pending?: string };
 export class TreasuryExecutor {
   private readonly pendingReasons = new Map<string, string>();
   private readonly advancing = new Set<string>();
+  private hyperCoreHolder: string | undefined;
 
   constructor(
     private readonly store: TransferStore,
@@ -80,7 +90,7 @@ export class TreasuryExecutor {
     return this.submit(intent);
   }
 
-  submit(intent: TopUpIntent): BridgeTransfer[] {
+  submit(intent: TopUpIntent, options: { validUntil?: string } = {}): BridgeTransfer[] {
     const existing = this.store.forIntent(intent.intentId);
     if (existing.length > 0) {
       const sameAmount = existing.reduce((sum, t) => sum + BigInt(t.grossAmount), 0n) === BigInt(intent.amount);
@@ -96,27 +106,35 @@ export class TreasuryExecutor {
     this.checkDailyCap(total);
 
     let cap = policy.perTransferCap ?? this.config.defaultPerTransferCap;
-    if (intent.route === "arc-hypercore" && cap > HYPERCORE_MAX_PER_TRANSFER) cap = HYPERCORE_MAX_PER_TRANSFER;
+    if (SERIALIZED_ROUTES.has(intent.route) && intent.route !== "hypercore-arc" && cap > HYPERCORE_MAX_PER_TRANSFER) {
+      cap = HYPERCORE_MAX_PER_TRANSFER;
+    }
     const [sourceDomain, destinationDomain] = DOMAINS[intent.route];
     const created: BridgeTransfer[] = [];
     let remaining = total;
     for (let index = 0; remaining > 0n; index++) {
       const chunk = remaining > cap ? cap : remaining;
       remaining -= chunk;
-      created.push(
-        this.store.create({
-          transferId: `${intent.intentId}:${index}`,
-          route: intent.route,
-          sourceDomain,
-          destinationDomain,
-          grossAmount: chunk.toString(),
-          maxFee: policy.maxFee.toString(),
-          attester: this.attester.label,
-          beneficiary: policy.beneficiary,
-          closeId: intent.closeId,
-          intentId: intent.intentId,
-        }),
-      );
+      const transfer = this.store.create({
+        transferId: `${intent.intentId}:${index}`,
+        route: intent.route,
+        sourceDomain,
+        destinationDomain,
+        grossAmount: chunk.toString(),
+        maxFee: policy.maxFee.toString(),
+        attester: this.attester.label,
+        beneficiary: policy.beneficiary,
+        closeId: intent.closeId,
+        intentId: intent.intentId,
+      });
+      const urgent = intent.reason === "margin-urgent";
+      if (urgent || options.validUntil !== undefined) {
+        this.store.setMeta(transfer.transferId, {
+          ...(urgent ? { urgent } : {}),
+          ...(options.validUntil === undefined ? {} : { validUntil: options.validUntil }),
+        });
+      }
+      created.push(transfer);
     }
     return created;
   }
@@ -252,7 +270,7 @@ export class TreasuryExecutor {
         return this.deliver(transfer, adapter);
       case "minted": {
         if (this.returnsToVault(transfer)) return this.acknowledgeReturn(transfer, adapter);
-        if (transfer.route !== "arc-solana") return { changed: false, pending: "minted with no next step on this route" };
+        if (!CREDITED_ON_MINT.has(transfer.route)) return { changed: false, pending: "minted with no next step on this route" };
         this.store.transition(id, "credited", { creditTx: transfer.mintTx });
         return { changed: true };
       }
@@ -271,6 +289,29 @@ export class TreasuryExecutor {
 
   private async burn(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
     const id = transfer.transferId;
+    const validUntil = this.store.meta(id)?.validUntil;
+    if (validUntil !== undefined && this.now().getTime() > Date.parse(validUntil)) {
+      this.store.refuse(id, REQUEST_EXPIRED_REASON);
+      return { changed: true };
+    }
+    if (!SERIALIZED_ROUTES.has(transfer.route)) return this.startBurn(transfer, adapter);
+    if (this.hyperCoreHolder !== undefined && this.hyperCoreHolder !== id) {
+      return { changed: false, pending: "waiting for the previous HyperCore transfer to settle" };
+    }
+    const urgentWaiting =
+      this.store.meta(id)?.urgent !== true &&
+      this.store.inFlight().some((t) => t.transferId !== id && t.state === "requested" && this.store.meta(t.transferId)?.urgent === true);
+    if (urgentWaiting) return { changed: false, pending: "waiting for an urgent margin top-up to go first" };
+    this.hyperCoreHolder = id;
+    try {
+      return await this.startBurn(transfer, adapter);
+    } finally {
+      this.hyperCoreHolder = undefined;
+    }
+  }
+
+  private async startBurn(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
+    const id = transfer.transferId;
     const resumable = adapter.idempotentBurn === true;
     if (!resumable && !this.store.canBurn(id)) {
       return { changed: false, pending: "burn outcome unknown, verify on chain before retrying" };
@@ -280,7 +321,7 @@ export class TreasuryExecutor {
     if (SERIALIZED_ROUTES.has(transfer.route) && adapter.destinationBalance) {
       const ahead = this.store
         .inFlight()
-        .some((t) => t.route === transfer.route && t.transferId !== id && t.state !== "requested");
+        .some((t) => SERIALIZED_ROUTES.has(t.route) && t.transferId !== id && t.state !== "requested");
       if (ahead) return { changed: false, pending: "waiting for the previous HyperCore transfer to settle" };
       if (this.store.meta(id)?.baselineBalance === undefined) {
         const baseline = await adapter.destinationBalance(transfer);

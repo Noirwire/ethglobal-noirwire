@@ -162,6 +162,61 @@ class LocalHypercoreAdapter implements RouteAdapter {
   }
 }
 
+export const LOCAL_BRIDGE_ATA = "LocalBridgeUsdcAccount1111111111111111111111";
+export const LOCAL_MAKER_ACCOUNT = "LocalMakerUsdcAccount11111111111111111111111";
+const LOCAL_HYPERCORE_START_BALANCE = 10_000_000_000n;
+
+class LocalRebalanceLeg implements RouteAdapter {
+  constructor(
+    private readonly kind: "out" | "in",
+    private readonly hyperCore: { balance: bigint },
+    private readonly stepDelayMs = 0,
+  ) {}
+
+  async burn(transfer: BridgeTransfer): Promise<{ burnTx: string }> {
+    if (this.kind === "in") this.hyperCore.balance -= BigInt(transfer.grossAmount);
+    return { burnTx: `local-rebalance-burn-${transfer.transferId}` };
+  }
+
+  async messageFor(transfer: BridgeTransfer): Promise<Hex | undefined> {
+    await sleep(this.stepDelayMs);
+    const word = addressToBytes32(LOCAL_HYPERCORE_SINK);
+    return encodeMessage({
+      version: MESSAGE_VERSION,
+      sourceDomain: transfer.sourceDomain,
+      destinationDomain: transfer.destinationDomain,
+      nonce: keccak256(toHex(`local-rebalance-${transfer.transferId}`)),
+      sender: word,
+      recipient: word,
+      destinationCaller: word,
+      minFinalityThreshold: FINALITY_FAST,
+      finalityThresholdExecuted: FINALITY_FAST,
+      body: encodeBurnBody({
+        version: BURN_BODY_VERSION,
+        burnToken: word,
+        mintRecipient: word,
+        amount: BigInt(transfer.grossAmount),
+        messageSender: word,
+        maxFee: LOCAL_FEE,
+        feeExecuted: LOCAL_FEE,
+        expirationBlock: 0n,
+        hookData: "0x",
+      }),
+    });
+  }
+
+  async deliver(transfer: BridgeTransfer): Promise<DeliverResult> {
+    await sleep(this.stepDelayMs);
+    if (this.kind === "in") return { status: "done", state: "minted", tx: `local-mint-${transfer.transferId}` };
+    this.hyperCore.balance += BigInt(transfer.grossAmount) - LOCAL_FEE;
+    return { status: "done", state: "forwarded", tx: `local-forward-${transfer.transferId}` };
+  }
+
+  async destinationBalance(): Promise<bigint> {
+    return this.hyperCore.balance;
+  }
+}
+
 async function deployFromArtifacts(
   rpcUrl: string,
   deployer: Hex,
@@ -238,6 +293,12 @@ export type LocalArc = {
   beneficiary: Hex;
   route: RoutePolicy;
   hypercore: { adapter: RouteAdapter; route: RoutePolicy };
+  rebalance: {
+    bridgeAta: string;
+    hyperCore: { balance: bigint };
+    out: { adapter: RouteAdapter; route: RoutePolicy };
+    in: { adapter: RouteAdapter; route: RoutePolicy };
+  };
   vault: VaultTreasury;
   addresses: LocalDeployment;
   publicClient: PublicClient;
@@ -368,9 +429,22 @@ export async function setupLocalArc(rpcUrl: string, options: LocalArcOptions): P
     messageTransmitter: transmitter,
     hookExecutor,
   });
+  const hyperCore = { balance: LOCAL_HYPERCORE_START_BALANCE };
   return {
     chainId,
     attester,
+    rebalance: {
+      bridgeAta: LOCAL_BRIDGE_ATA,
+      hyperCore,
+      out: {
+        adapter: new LocalRebalanceLeg("out", hyperCore, options.stepDelayMs),
+        route: { destination: LOCAL_HYPERCORE_SINK, maxFee: LOCAL_FEE },
+      },
+      in: {
+        adapter: new LocalRebalanceLeg("in", hyperCore, options.stepDelayMs),
+        route: { destination: LOCAL_MAKER_ACCOUNT, maxFee: LOCAL_FEE },
+      },
+    },
     adapter: new LocalSolanaArcAdapter(evm, buildMessage, options.stepDelayMs),
     hookExecutor,
     beneficiary,

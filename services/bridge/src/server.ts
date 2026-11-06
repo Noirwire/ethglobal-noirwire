@@ -11,6 +11,13 @@ import {
   UnavailableDeposits,
   type SolanaDepositApi,
 } from "./solana-deposit.ts";
+import {
+  fundedBody,
+  RequestConflict,
+  RequestInvalid,
+  RequestUnknown,
+  type RebalanceBook,
+} from "./rebalance.ts";
 import type { TransferStore } from "./transfers.ts";
 
 export const DEFAULT_BRIDGE_PORT = 8702;
@@ -53,7 +60,9 @@ export function transferEvent(transfer: BridgeTransfer): FlowEvent {
 function knownError(res: ServerResponse, error: unknown): boolean {
   if (error instanceof BadRequest) json(res, 400, { error: error.message });
   else if (error instanceof IntentForbidden) json(res, 403, { error: error.message });
-  else if (error instanceof DepositUnavailable) json(res, 409, { error: error.message });
+  else if (error instanceof DepositUnavailable || error instanceof RequestConflict) json(res, 409, { error: error.message });
+  else if (error instanceof RequestUnknown) json(res, 404, { error: error.message });
+  else if (error instanceof RequestInvalid) json(res, 422, { error: error.message });
   else if (error instanceof TransactionNotFound) json(res, 404, { error: error.message });
   else if (error instanceof DepositRefused || error instanceof IntentRejected) json(res, 422, { error: error.message });
   else return false;
@@ -62,13 +71,31 @@ function knownError(res: ServerResponse, error: unknown): boolean {
 
 const MIN_API_TOKEN_LENGTH = 32;
 
-export function resolveApiToken(network: "testnet" | "local", value: string | undefined): string | undefined {
+export function resolveApiToken(
+  network: "testnet" | "local",
+  value: string | undefined,
+  name = "BRIDGE_API_TOKEN",
+): string | undefined {
   if (value === undefined) {
-    if (network === "testnet") throw new Error("BRIDGE_API_TOKEN is required in testnet mode");
+    if (network === "testnet") throw new Error(`${name} is required in testnet mode`);
     return undefined;
   }
-  if (value.length < MIN_API_TOKEN_LENGTH) throw new Error(`BRIDGE_API_TOKEN must be at least ${MIN_API_TOKEN_LENGTH} characters`);
+  if (value.length < MIN_API_TOKEN_LENGTH) throw new Error(`${name} must be at least ${MIN_API_TOKEN_LENGTH} characters`);
   return value;
+}
+
+export type RebalanceApi = { book: RebalanceBook; token?: string };
+
+const REBALANCE_PREFIX = "/v1/rebalance/requests";
+
+async function readJson(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw new RequestInvalid("the body is not valid JSON");
+  }
 }
 
 function digest(value: string): Buffer {
@@ -87,6 +114,7 @@ export function createBridgeServer(
   devDeposit?: DevDeposit,
   solanaDeposits: SolanaDepositApi = NO_SOLANA_DEPOSITS,
   apiToken?: string,
+  rebalance?: RebalanceApi,
 ): Server {
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -94,6 +122,28 @@ export function createBridgeServer(
       if (req.method === "OPTIONS") {
         res.writeHead(204, { ...ALLOW_ORIGIN, "access-control-allow-headers": "content-type" });
         return res.end();
+      }
+      if (rebalance && url.pathname.startsWith(REBALANCE_PREFIX)) {
+        if (rebalance.token && !authorized(req, rebalance.token)) return json(res, 401, { error: "unauthorized" });
+        const tail = url.pathname.slice(REBALANCE_PREFIX.length);
+        if (req.method === "POST" && tail === "") {
+          const accepted = rebalance.book.accept(await readJson(req));
+          void rebalance.book.tick().then(() => executor.tick());
+          return json(res, 202, accepted);
+        }
+        const id = decodeURIComponent(tail.split("/")[1] ?? "");
+        if (req.method === "GET" && /^\/[^/]+$/.test(tail)) {
+          const state = rebalance.book.state(id);
+          return state ? json(res, 200, { state }) : json(res, 404, { error: "unknown request" });
+        }
+        if (req.method === "POST" && /^\/[^/]+\/funded$/.test(tail)) {
+          const body = fundedBody.safeParse(await readJson(req));
+          if (!body.success) throw new RequestInvalid(body.error.message);
+          const state = await rebalance.book.funded(id, body.data.signature);
+          void executor.tick();
+          return json(res, 202, { state });
+        }
+        return json(res, 404, { error: "not found" });
       }
       if (req.method === "POST" && apiToken && !authorized(req, apiToken)) {
         return json(res, 401, { error: "unauthorized" });

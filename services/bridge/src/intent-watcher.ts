@@ -8,7 +8,14 @@ export const topUpIntentRecordedEvent = parseAbiItem(
   "event TopUpIntentRecorded(bytes32 indexed intentId, uint64 closeId, uint8 route, uint256 amount, uint16 marginRatioBps, uint8 reason)",
 );
 
-const ROUTES: readonly TransferRoute[] = ["arc-hypercore", "hypercore-arc", "arc-solana", "solana-arc"];
+const ROUTES: readonly TransferRoute[] = [
+  "arc-hypercore",
+  "hypercore-arc",
+  "arc-solana",
+  "solana-arc",
+  "solana-hypercore",
+  "hypercore-solana",
+];
 const REASONS: readonly TopUpIntent["reason"][] = ["margin-low", "margin-urgent", "surplus-return", "solana-rebalance"];
 
 export type IntentLog = {
