@@ -14,9 +14,12 @@ import {IMessageTransmitterV2} from "src/interfaces/IMessageTransmitterV2.sol";
 ///   forge script script/DeployArcTestnet.s.sol --rpc-url https://rpc.testnet.arc.network --account <keystore> --sender <address>
 /// Keys come from a Foundry keystore, never from the environment. ADMIN defaults to the broadcasting
 /// EOA, which is acceptable on testnet only; a mainnet deployment must use a multisig admin and an audit.
+/// TREASURY_EXECUTOR is the bridge's Arc treasury address (the address of its ARC_OPERATOR_KEY) and is
+/// allowlisted as a move destination. OPERATOR must be that same address so the bridge can call
+/// moveToVenue and acknowledgeReturn. MOVE_CAP_PER_CALL and MOVE_CAP_PER_EPOCH are USDC base units
+/// (6 decimals); when unset they stay zero and the vault moves nothing.
 contract DeployArcTestnet is Script {
     uint256 internal constant ARC_TESTNET_CHAIN_ID = 5_042_002;
-    uint256 internal constant DEFAULT_MOVE_CAP = 100_000e6;
     string internal constant OUT_FILE = "deployments/arc-testnet.json";
 
     address internal constant ARC_USDC = 0x3600000000000000000000000000000000000000;
@@ -57,7 +60,7 @@ contract DeployArcTestnet is Script {
         vault.setNavReceiver(address(receiver));
         vault.setOperator(operator);
         vault.setDestinationAllowed(treasury, true);
-        vault.setMoveCaps(DEFAULT_MOVE_CAP, DEFAULT_MOVE_CAP);
+        vault.setMoveCaps(vm.envOr("MOVE_CAP_PER_CALL", uint256(0)), vm.envOr("MOVE_CAP_PER_EPOCH", uint256(0)));
         if (admin != msg.sender) {
             vault.transferOwnership(admin);
             receiver.transferOwnership(admin);
