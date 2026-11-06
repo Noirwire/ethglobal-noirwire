@@ -1,6 +1,6 @@
 staging-settings:
   account:
-    workflow-owner-address: "0x4F81978894a5f3e90Ba99067E7BEB8Aff8D7a890"
+    workflow-owner-address: "0xe09D8800B80aE46357de190aE0775A97BF1Ac421"
   rpcs:
     - chain-name: arc-testnet
       url: http://127.0.0.1:8650
