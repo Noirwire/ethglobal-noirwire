@@ -12,7 +12,7 @@ export type CctpDomain = (typeof CCTP_DOMAINS)[keyof typeof CCTP_DOMAINS];
 export const NETWORKS = {
   arcTestnet: {
     chainId: 5042002,
-    rpcUrl: "https://rpc.testnet.arc.io",
+    rpcUrl: "https://rpc.testnet.arc.network",
     explorer: "https://explorer.testnet.arc.io",
     cctpDomain: CCTP_DOMAINS.arc,
   },
