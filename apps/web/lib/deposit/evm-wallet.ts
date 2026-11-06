@@ -1,5 +1,5 @@
 import { getAddress, numberToHex, type Address } from "viem";
-import type { ArcConfig } from "./config";
+import { ARC_NATIVE_CURRENCY, type ArcConfig } from "./config";
 
 export interface Eip1193Provider {
   request(args: { method: string; params?: unknown }): Promise<unknown>;
@@ -35,7 +35,7 @@ export async function switchToArc(provider: Eip1193Provider, config: ArcConfig):
         {
           chainId,
           chainName: config.chainName,
-          nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+          nativeCurrency: ARC_NATIVE_CURRENCY,
           rpcUrls: [config.rpcUrl],
           ...(config.explorer ? { blockExplorerUrls: [config.explorer] } : {}),
         },

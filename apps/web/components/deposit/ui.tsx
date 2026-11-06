@@ -1,12 +1,10 @@
-"use client";
-
 import { useLive } from "../LiveProvider";
 import { Rail, transferNodes } from "../TransferRail";
 import { CHAIN_LABEL } from "@/lib/explorers";
 import { formatUsdc } from "@/lib/format";
 import { ATTESTER_LABEL, ROUTE_CHAINS } from "@/lib/transfers";
 
-export const STEP_LABELS = ["Connect", "Amount", "Confirm"] as const;
+const STEP_LABELS = ["Connect", "Amount", "Confirm"] as const;
 
 export function Steps({ current }: { current: 0 | 1 | 2 }) {
   return (

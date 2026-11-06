@@ -14,7 +14,6 @@ const LiveContext = createContext<Live | null>(null);
 export function LiveProvider({ initial, children }: { initial: PublicView; children: React.ReactNode }) {
   const [view, setView] = useState(initial);
   const [streaming, setStreaming] = useState(true);
-
   const [stale, setStale] = useState(false);
 
   useEffect(() => {

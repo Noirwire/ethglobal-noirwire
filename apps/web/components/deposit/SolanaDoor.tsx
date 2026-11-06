@@ -77,10 +77,11 @@ function SolanaFlow({ status }: { status: SolanaStatus }) {
 
   const parsed = parseUsdcAmount(amountText);
   const amountError = amountText.trim() === "" || parsed.ok ? null : parsed.reason;
+  const beneficiaryValid = isAddress(beneficiary.trim());
   const beneficiaryError =
-    local || beneficiary.trim() === "" || isAddress(beneficiary.trim()) ? null : "Enter the Arc address (0x followed by 40 hex characters) that receives the vault position.";
+    local || beneficiary.trim() === "" || beneficiaryValid ? null : "Enter the Arc address (0x followed by 40 hex characters) that receives the vault position.";
   const connected = local ? localReady : account !== null;
-  const canReview = parsed.ok && (local || isAddress(beneficiary.trim()));
+  const canReview = parsed.ok && (local || beneficiaryValid);
 
   const connect = async (chosen: StandardWallet) => {
     setError(null);

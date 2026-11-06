@@ -10,7 +10,7 @@ const HEAD_BYTES = 100;
 
 const hookParams = [{ type: "uint8" }, { type: "address" }, { type: "bytes32" }, { type: "uint64" }] as const;
 
-export interface DepositExpectation {
+interface DepositExpectation {
   owner: string;
   amount: bigint;
   beneficiary: string;

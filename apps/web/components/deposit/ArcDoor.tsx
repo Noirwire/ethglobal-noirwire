@@ -3,8 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPublicClient, createWalletClient, custom, http, type Address, type Hex } from "viem";
 import { AmountField, ErrorNote, Notice, primaryButton, secondaryButton, Steps, Summary } from "./ui";
-import { arcChain, depositToVault, explainWalletError, readArcState, type ArcState, type DepositStep } from "@/lib/deposit/arc";
-import { parseArcConfig, readPublicEnv } from "@/lib/deposit/config";
+import {
+  arcChain,
+  depositToVault,
+  explainWalletError,
+  readArcState,
+  VAULT_PAUSED_MESSAGE,
+  VAULT_STALLED_MESSAGE,
+  type ArcState,
+  type DepositStep,
+} from "@/lib/deposit/arc";
+import { parseArcConfig, readPublicEnv, type ArcConfig } from "@/lib/deposit/config";
 import { injectedProvider, requestAccounts, switchToArc, walletChainId, type Eip1193Provider } from "@/lib/deposit/evm-wallet";
 import { parseUsdcAmount } from "@/lib/deposit/amount";
 import { shortHash } from "@/lib/explorers";
@@ -17,9 +26,7 @@ export function ArcDoor() {
   return <ArcFlow config={configResult.config} />;
 }
 
-type Config = Extract<typeof configResult, { ok: true }>["config"];
-
-function ArcFlow({ config }: { config: Config }) {
+function ArcFlow({ config }: { config: ArcConfig }) {
   const [provider, setProvider] = useState<Eip1193Provider | null>(null);
   const [account, setAccount] = useState<Address | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
@@ -91,11 +98,7 @@ function ArcFlow({ config }: { config: Config }) {
   const parsed = parseUsdcAmount(amountText);
   const amountError =
     amountText.trim() === "" ? null : !parsed.ok ? parsed.reason : state && parsed.units > state.balance ? `Your wallet holds ${formatUsdc(state.balance.toString())} USDC. Enter less or add USDC.` : null;
-  const blocked = state?.paused
-    ? "The vault has paused new requests after a large price move. Try again after the next close."
-    : state?.stalled
-      ? "The vault has not closed an epoch recently, so new deposits are halted until it does."
-      : null;
+  const blocked = state?.paused ? VAULT_PAUSED_MESSAGE : state?.stalled ? VAULT_STALLED_MESSAGE : null;
 
   const submit = async () => {
     if (!provider || !account || !parsed.ok) return;

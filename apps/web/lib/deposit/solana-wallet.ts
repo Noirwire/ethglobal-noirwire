@@ -8,7 +8,7 @@ import { base58Encode } from "./base58";
 export type StandardWallet = ReturnType<Wallets["get"]>[number];
 export type StandardAccount = StandardWallet["accounts"][number];
 
-export const SOLANA_DEVNET_CHAIN = "solana:devnet";
+const SOLANA_DEVNET_CHAIN = "solana:devnet";
 const STANDARD_CONNECT = "standard:connect";
 
 interface ConnectFeature {
@@ -19,7 +19,7 @@ type SignAndSend = SolanaSignAndSendTransactionFeature[typeof SolanaSignAndSendT
 
 const featureOf = <T>(wallet: StandardWallet, name: string) => (wallet.features as Record<string, unknown>)[name] as T | undefined;
 
-export function usableWallets(wallets: readonly StandardWallet[]): StandardWallet[] {
+function usableWallets(wallets: readonly StandardWallet[]): StandardWallet[] {
   return wallets.filter(
     (wallet) =>
       STANDARD_CONNECT in wallet.features &&

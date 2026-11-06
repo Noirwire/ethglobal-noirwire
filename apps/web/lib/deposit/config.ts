@@ -1,7 +1,9 @@
 import { NETWORKS } from "@noirwire/shared";
 import { isAddress, type Address } from "viem";
 
-export const ARC_TESTNET_USDC: Address = "0x3600000000000000000000000000000000000000";
+const ARC_TESTNET_USDC: Address = "0x3600000000000000000000000000000000000000";
+
+export const ARC_NATIVE_CURRENCY = { name: "USDC", symbol: "USDC", decimals: 18 } as const;
 
 export interface ArcConfig {
   chainId: number;
@@ -12,9 +14,9 @@ export interface ArcConfig {
   explorer: string | null;
 }
 
-export type ArcConfigResult = { ok: true; config: ArcConfig } | { ok: false; reason: string };
+type ArcConfigResult = { ok: true; config: ArcConfig } | { ok: false; reason: string };
 
-export interface PublicEnv {
+interface PublicEnv {
   chainId?: string;
   rpcUrl?: string;
   vault?: string;

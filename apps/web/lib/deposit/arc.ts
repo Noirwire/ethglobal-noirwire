@@ -8,7 +8,7 @@ import {
   type PublicClient,
   type WalletClient,
 } from "viem";
-import type { ArcConfig } from "./config";
+import { ARC_NATIVE_CURRENCY, type ArcConfig } from "./config";
 
 export const erc20Abi = parseAbi([
   "function balanceOf(address) view returns (uint256)",
@@ -16,7 +16,7 @@ export const erc20Abi = parseAbi([
   "function approve(address spender, uint256 value) returns (bool)",
 ]);
 
-export const vaultAbi = parseAbi([
+const vaultAbi = parseAbi([
   "function requestDeposit(uint256 assets, address receiver)",
   "function depositRequests(address user) view returns (uint64 epoch, uint192 assets)",
   "function pendingClaims(address user) view returns (uint256 shares, uint256 assets)",
@@ -29,7 +29,7 @@ export function arcChain(config: ArcConfig): Chain {
   return defineChain({
     id: config.chainId,
     name: config.chainName,
-    nativeCurrency: { name: "USDC", symbol: "USDC", decimals: 18 },
+    nativeCurrency: ARC_NATIVE_CURRENCY,
     rpcUrls: { default: { http: [config.rpcUrl] } },
     ...(config.explorer ? { blockExplorers: { default: { name: "Arc explorer", url: config.explorer } } } : {}),
   });
@@ -68,7 +68,7 @@ export async function readArcState(client: PublicClient, config: ArcConfig, acco
 
 export type DepositStep = "approving" | "depositing";
 
-export interface DepositResult {
+interface DepositResult {
   approveTx: Hex | null;
   depositTx: Hex;
   state: ArcState;
@@ -126,9 +126,12 @@ export async function depositToVault(args: {
   return { approveTx, depositTx, state: await readArcState(publicClient, config, account) };
 }
 
+export const VAULT_PAUSED_MESSAGE = "The vault has paused new requests after a large price move. Try again after the next close.";
+export const VAULT_STALLED_MESSAGE = "The vault has not closed an epoch recently, so new deposits are halted until it does.";
+
 const VAULT_ERRORS: Record<string, string> = {
-  ShareVault__RequestsPaused: "The vault has paused new requests after a large price move. Try again after the next close.",
-  ShareVault__StaleHalt: "The vault has not closed an epoch recently, so new deposits are halted until it does.",
+  ShareVault__RequestsPaused: VAULT_PAUSED_MESSAGE,
+  ShareVault__StaleHalt: VAULT_STALLED_MESSAGE,
   ShareVault__ZeroAmount: "The amount must be above zero.",
   ERC20InsufficientBalance: "Your wallet holds less USDC than this amount. Lower the amount or add USDC.",
   ERC20InsufficientAllowance: "The approval did not cover this amount. Run the deposit again to approve it.",

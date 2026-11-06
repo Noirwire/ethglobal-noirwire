@@ -1,6 +1,6 @@
 import { toBaseUnits, USDC_DECIMALS } from "@noirwire/shared";
 
-export type ParsedAmount = { ok: true; units: bigint } | { ok: false; reason: string };
+type ParsedAmount = { ok: true; units: bigint } | { ok: false; reason: string };
 
 const U64_MAX = 2n ** 64n - 1n;
 

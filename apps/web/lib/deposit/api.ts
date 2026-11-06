@@ -1,4 +1,4 @@
-export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string };
+type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string };
 
 export interface SolanaStatus {
   mode: "local" | "testnet";
@@ -6,7 +6,7 @@ export interface SolanaStatus {
   reason?: string;
 }
 
-export interface PreparedDeposit {
+interface PreparedDeposit {
   transaction: string;
   deadline: number;
   maxFee: string;

@@ -75,7 +75,7 @@ function hashFor(transfer: BridgeTransfer, stage: Stage): { hash: string | null;
 
 const MINUTE_MS = 60_000;
 
-export function floorToMinute(iso: string): string {
+function floorToMinute(iso: string): string {
   return new Date(Math.floor(Date.parse(iso) / MINUTE_MS) * MINUTE_MS).toISOString();
 }
 
