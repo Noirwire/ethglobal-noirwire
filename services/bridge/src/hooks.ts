@@ -1,6 +1,7 @@
+import { VAULT_HOOK_PARAMS, VAULT_HOOK_VERSION } from "@noirwire/shared";
 import { concatHex, decodeAbiParameters, encodeAbiParameters, isAddress, numberToHex, stringToHex, type Hex } from "viem";
 
-export const VAULT_HOOK_VERSION = 1;
+export { VAULT_HOOK_VERSION };
 export const VAULT_HOOK_DEADLINE_SECONDS = 3600;
 
 export type VaultHook = {
@@ -9,12 +10,7 @@ export type VaultHook = {
   deadline: bigint;
 };
 
-const vaultHookParams = [
-  { type: "uint8" },
-  { type: "address" },
-  { type: "bytes32" },
-  { type: "uint64" },
-] as const;
+const vaultHookParams = VAULT_HOOK_PARAMS;
 
 export function encodeVaultHookData(hook: VaultHook): Hex {
   if (!isAddress(hook.beneficiary)) throw new Error("beneficiary must be an EVM address");

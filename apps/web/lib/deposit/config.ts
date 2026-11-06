@@ -1,7 +1,5 @@
-import { NETWORKS } from "@noirwire/shared";
+import { ARC_TESTNET_USDC, NETWORKS } from "@noirwire/shared";
 import { isAddress, type Address } from "viem";
-
-const ARC_TESTNET_USDC: Address = "0x3600000000000000000000000000000000000000";
 
 export const ARC_NATIVE_CURRENCY = { name: "USDC", symbol: "USDC", decimals: 18 } as const;
 

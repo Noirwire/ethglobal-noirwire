@@ -138,37 +138,3 @@ export class LocalAttester implements Attester {
     return { status: "complete", message: query.message, attestation: await this.attest(query.message) };
   }
 }
-
-export class AttestationTimeout extends Error {}
-
-export type PollOptions = {
-  intervalMs?: number;
-  maxIntervalMs?: number;
-  timeoutMs?: number;
-  sleep?: (ms: number) => Promise<void>;
-  now?: () => number;
-};
-
-export async function pollAttestation(
-  attester: Attester,
-  query: AttestationQuery,
-  options: PollOptions = {},
-): Promise<Attestation> {
-  const { intervalMs = 2000, maxIntervalMs = 30_000, timeoutMs = 20 * 60_000 } = options;
-  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const now = options.now ?? Date.now;
-  const deadline = now() + timeoutMs;
-  let wait = intervalMs;
-  for (;;) {
-    let result: Attestation | undefined;
-    try {
-      result = await attester.fetchAttestation(query);
-    } catch {
-      result = undefined;
-    }
-    if (result?.status === "complete") return result;
-    if (now() + wait > deadline) throw new AttestationTimeout(`no attestation for ${query.txHash} within ${timeoutMs}ms`);
-    await sleep(wait);
-    wait = Math.min(wait * 2, maxIntervalMs);
-  }
-}

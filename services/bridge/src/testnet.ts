@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { EVM_FUNDING_SOURCES, NETWORKS, type EvmFundingSourceId, type TransferRoute } from "@noirwire/shared";
+import { ARC_TESTNET_USDC, EVM_FUNDING_SOURCES, NETWORKS, type EvmFundingSourceId, type TransferRoute } from "@noirwire/shared";
 import { EVM_DEPOSIT_ROUTES, EvmArcAdapter, EvmDeposits, ViemSourceReader, type EvmDepositApi, type EvmDepositSource } from "./evm-deposit.ts";
 import { bytesToHex, createPublicClient, createWalletClient, defineChain, erc20Abi, http, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { ARC_TESTNET_USDC, CIRCLE_TESTNET, CORE_DEPOSIT_WALLET_TESTNET, SOLANA_DEVNET_USDC_MINT } from "./addresses.ts";
+import { CIRCLE_TESTNET, CORE_DEPOSIT_WALLET_TESTNET, SOLANA_DEVNET_USDC_MINT } from "./addresses.ts";
 import { HypercoreArcAdapter, HypercoreSolanaAdapter, IrisReturnFees, ViemHyperEvmBurns } from "./hypercore-arc.ts";
 import { DEFAULT_RETURN_GAS_LIMIT, HttpHyperliquidExchange } from "./hyperliquid-withdraw.ts";
 import { ArcHypercoreAdapter, ArcSolanaAdapter, SolanaArcAdapter, SolanaHypercoreAdapter } from "./adapters.ts";
@@ -97,7 +97,6 @@ export function wireTestnet(
       sources[source.cctpDomain] = {
         label: source.label,
         tokenMessenger: CIRCLE_TESTNET.tokenMessengerV2,
-        messageTransmitter: CIRCLE_TESTNET.messageTransmitterV2,
         usdc: source.usdc,
       };
     }

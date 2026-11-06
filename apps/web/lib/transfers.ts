@@ -1,4 +1,4 @@
-import type { BridgeTransfer, TransferRoute, TransferState } from "@noirwire/shared";
+import { ROUTE_ENDPOINTS, type BridgeTransfer, type TransferRoute, TransferState } from "@noirwire/shared";
 import { txUrl, type Chain } from "./explorers";
 import { PUBLISH_DELAY_MS } from "./privacy";
 import type { PublicTransfer } from "./view-types";
@@ -14,17 +14,7 @@ export const STAGE_LABEL: Record<Stage, string> = {
   credited: "Credited",
 };
 
-export const ROUTE_CHAINS: Record<TransferRoute, { from: Chain; to: Chain }> = {
-  "arc-solana": { from: "arc", to: "solana" },
-  "solana-arc": { from: "solana", to: "arc" },
-  "ethereum-arc": { from: "ethereum", to: "arc" },
-  "base-arc": { from: "base", to: "arc" },
-  "arbitrum-arc": { from: "arbitrum", to: "arc" },
-  "arc-hypercore": { from: "arc", to: "hypercore" },
-  "hypercore-arc": { from: "hypercore", to: "arc" },
-  "solana-hypercore": { from: "solana", to: "hypercore" },
-  "hypercore-solana": { from: "hypercore", to: "solana" },
-};
+export const ROUTE_CHAINS: Record<TransferRoute, { from: Chain; to: Chain }> = ROUTE_ENDPOINTS;
 
 const STATE_STAGE: Record<TransferState, number> = {
   requested: 0,

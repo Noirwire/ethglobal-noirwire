@@ -1,14 +1,11 @@
 import { createHash } from "node:crypto";
 import { PublicKey, Transaction } from "@solana/web3.js";
-import { CCTP_DOMAINS } from "@noirwire/shared";
+import { CCTP_DOMAINS, VAULT_HOOK_PARAMS, VAULT_HOOK_VERSION } from "@noirwire/shared";
 import { bytesToHex, decodeAbiParameters, getAddress, type Hex } from "viem";
 
 export const TOKEN_MESSENGER_MINTER_V2 = new PublicKey("CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe");
 const BURN_WITH_HOOK = createHash("sha256").update("global:deposit_for_burn_with_hook").digest().subarray(0, 8);
-const HOOK_VERSION = 1;
 const HEAD_BYTES = 100;
-
-const hookParams = [{ type: "uint8" }, { type: "address" }, { type: "bytes32" }, { type: "uint64" }] as const;
 
 interface DepositExpectation {
   owner: string;
@@ -40,12 +37,12 @@ export function inspectPreparedDeposit(transactionBase64: string, expected: Depo
   if (data.length !== HEAD_BYTES + hookLength) return "the hook data length is wrong";
   let hook: readonly [number, string, Hex, bigint];
   try {
-    hook = decodeAbiParameters(hookParams, bytesToHex(data.subarray(HEAD_BYTES)));
+    hook = decodeAbiParameters(VAULT_HOOK_PARAMS, bytesToHex(data.subarray(HEAD_BYTES)));
   } catch {
     return "the hook data cannot be decoded";
   }
   const [version, beneficiary, depositor] = hook;
-  if (version !== HOOK_VERSION) return "the hook data version is not 1";
+  if (version !== VAULT_HOOK_VERSION) return "the hook data version is not 1";
   if (getAddress(beneficiary) !== getAddress(expected.beneficiary)) return "the hook beneficiary differs from the address entered";
   if (depositor !== bytesToHex(new PublicKey(expected.owner).toBytes())) return "the hook depositor is not the connected wallet";
   return null;

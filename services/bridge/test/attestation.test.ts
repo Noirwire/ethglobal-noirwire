@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { keccak256, recoverAddress, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
-import { AttestationTimeout, IrisClient, LocalAttester, parseIrisResponse, pollAttestation, type Attester } from "../src/iris.ts";
+import { IrisClient, LocalAttester, parseIrisResponse } from "../src/iris.ts";
 import { buildBurnMessage } from "./helpers.ts";
 
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/iris-complete.json", import.meta.url), "utf8")) as unknown;
@@ -112,49 +112,5 @@ describe("LocalAttester", () => {
     const attester = new LocalAttester([keys[0] as Hex]);
     expect(attester.label).toBe("local-test-attester");
     expect((await attester.fetchAttestation({ sourceDomain: 5, txHash: "0x1" })).status).toBe("pending");
-  });
-});
-
-describe("pollAttestation", () => {
-  const fakeTime = () => {
-    let t = 0;
-    const waits: number[] = [];
-    return {
-      waits,
-      now: () => t,
-      sleep: async (ms: number) => {
-        waits.push(ms);
-        t += ms;
-      },
-    };
-  };
-
-  it("backs off and returns once complete", async () => {
-    const time = fakeTime();
-    let calls = 0;
-    const attester: Attester = {
-      label: "circle-iris",
-      async fetchAttestation() {
-        calls++;
-        if (calls < 4) return { status: "pending" };
-        return { status: "complete", attestation: "0x11", message: "0x22" };
-      },
-    };
-    const result = await pollAttestation(attester, { sourceDomain: 5, txHash: "0x1" }, { ...time, intervalMs: 100, maxIntervalMs: 250 });
-    expect(result.status).toBe("complete");
-    expect(time.waits).toEqual([100, 200, 250]);
-  });
-
-  it("times out with AttestationTimeout and survives transient errors", async () => {
-    const time = fakeTime();
-    const attester: Attester = {
-      label: "circle-iris",
-      async fetchAttestation() {
-        throw new Error("network down");
-      },
-    };
-    await expect(
-      pollAttestation(attester, { sourceDomain: 5, txHash: "0x1" }, { ...time, intervalMs: 100, timeoutMs: 1000 }),
-    ).rejects.toBeInstanceOf(AttestationTimeout);
   });
 });

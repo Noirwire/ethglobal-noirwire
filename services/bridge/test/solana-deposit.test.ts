@@ -18,10 +18,11 @@ import {
   type SolanaReader,
 } from "../src/solana-deposit.ts";
 import { TransferStore } from "../src/transfers.ts";
+import { DEFAULT_HOOK_EXECUTOR, SOURCE_BENEFICIARY } from "./evm-fixtures.ts";
 import { idleAdapter } from "./helpers.ts";
 
-const HOOK_EXECUTOR: Hex = "0x00000000000000000000000000000000000000ee";
-const BENEFICIARY: Hex = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+const HOOK_EXECUTOR = DEFAULT_HOOK_EXECUTOR;
+const BENEFICIARY = SOURCE_BENEFICIARY;
 const MAX_FEE = 1_000n;
 const NOW = new Date("2026-11-06T10:00:00.000Z");
 const owner = Keypair.generate().publicKey;

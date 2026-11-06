@@ -5,9 +5,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
-import { CCTP_DOMAINS, NETWORKS } from "@noirwire/shared";
+import { ARC_TESTNET_USDC, CCTP_DOMAINS, NETWORKS } from "@noirwire/shared";
 import { bytesToHex, hexToBytes, keccak256, padHex, toHex, type Hex } from "viem";
-import { ARC_TESTNET_USDC } from "./addresses.ts";
 import { encodeVaultHookData } from "./hooks.ts";
 import { LocalAttester } from "./iris.ts";
 import {

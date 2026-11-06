@@ -1,4 +1,4 @@
-import { CCTP_DOMAINS, SETTLED_TRANSFER_STATES, type BridgeTransfer, type TopUpIntent, type TransferRoute } from "@noirwire/shared";
+import { CHAIN_CCTP_DOMAIN, ROUTE_ENDPOINTS, SETTLED_TRANSFER_STATES, type BridgeTransfer, type TopUpIntent, type TransferRoute } from "@noirwire/shared";
 import type { Hex } from "viem";
 import type { Attestation, Attester } from "./iris.ts";
 import { decodeBurnBody, decodeMessage, messageHash } from "./message.ts";
@@ -70,17 +70,10 @@ export class RouteUnavailable extends IntentRejected {}
 export class IntentForbidden extends Error {}
 export class BurnRefused extends Error {}
 
-const DOMAINS: Record<TransferRoute, [number, number]> = {
-  "arc-solana": [CCTP_DOMAINS.arc, CCTP_DOMAINS.solana],
-  "solana-arc": [CCTP_DOMAINS.solana, CCTP_DOMAINS.arc],
-  "ethereum-arc": [CCTP_DOMAINS.ethereum, CCTP_DOMAINS.arc],
-  "base-arc": [CCTP_DOMAINS.base, CCTP_DOMAINS.arc],
-  "arbitrum-arc": [CCTP_DOMAINS.arbitrum, CCTP_DOMAINS.arc],
-  "arc-hypercore": [CCTP_DOMAINS.arc, CCTP_DOMAINS.hyperEvm],
-  "hypercore-arc": [CCTP_DOMAINS.hyperEvm, CCTP_DOMAINS.arc],
-  "solana-hypercore": [CCTP_DOMAINS.solana, CCTP_DOMAINS.hyperEvm],
-  "hypercore-solana": [CCTP_DOMAINS.hyperEvm, CCTP_DOMAINS.solana],
-};
+function routeDomains(route: TransferRoute): [number, number] {
+  const { from, to } = ROUTE_ENDPOINTS[route];
+  return [CHAIN_CCTP_DOMAIN[from], CHAIN_CCTP_DOMAIN[to]];
+}
 
 export type StepResult = { changed: boolean; pending?: string };
 
@@ -127,7 +120,7 @@ export class TreasuryExecutor {
     if (SERIALIZED_ROUTES.has(intent.route) && intent.route !== "hypercore-arc" && cap > HYPERCORE_MAX_PER_TRANSFER) {
       cap = HYPERCORE_MAX_PER_TRANSFER;
     }
-    const [sourceDomain, destinationDomain] = DOMAINS[intent.route];
+    const [sourceDomain, destinationDomain] = routeDomains(intent.route);
     const created: BridgeTransfer[] = [];
     let remaining = total;
     for (let index = 0; remaining > 0n; index++) {
@@ -171,7 +164,7 @@ export class TreasuryExecutor {
     const existing = this.store.forIntent(intent.intentId)[0];
     if (existing) return existing;
     const transferId = `${intent.intentId}:0`;
-    const [sourceDomain, destinationDomain] = DOMAINS[intent.route];
+    const [sourceDomain, destinationDomain] = routeDomains(intent.route);
     this.store.create({
       transferId,
       route: intent.route,
@@ -231,7 +224,7 @@ export class TreasuryExecutor {
     if (existing) return existing;
     const policy = this.config.routes[input.route];
     if (!policy) throw new IntentRejected(`route ${input.route} is not supported`);
-    const [sourceDomain, destinationDomain] = DOMAINS[input.route];
+    const [sourceDomain, destinationDomain] = routeDomains(input.route);
     this.store.create({
       transferId,
       route: input.route,
@@ -245,6 +238,12 @@ export class TreasuryExecutor {
       deposit: true,
     });
     return this.store.transition(transferId, "burned", { burnTx: input.burnTx });
+  }
+
+  adoptAndAdvance(input: Parameters<TreasuryExecutor["adoptBurn"]>[0]): BridgeTransfer {
+    const transfer = this.adoptBurn(input);
+    void this.advance(transfer.transferId);
+    return transfer;
   }
 
   pending(): { transferId: string; reason: string }[] {

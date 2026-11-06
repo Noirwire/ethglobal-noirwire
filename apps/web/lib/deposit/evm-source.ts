@@ -1,8 +1,7 @@
-import { CCTP_DOMAINS, CCTP_TESTNET_CONTRACTS, EVM_FUNDING_SOURCES, type EvmFundingSourceId } from "@noirwire/shared";
+import { CCTP_DOMAINS, CCTP_TESTNET_CONTRACTS, EVM_FUNDING_SOURCES, VAULT_HOOK_PARAMS, VAULT_HOOK_VERSION, type EvmFundingSourceId } from "@noirwire/shared";
 import { defineChain, encodeAbiParameters, pad, parseAbi, type Address, type Chain, type Hex } from "viem";
 
 export const FAST_FINALITY = 1000;
-export const HOOK_VERSION = 1;
 export const HOOK_DEADLINE_SECONDS = 3600;
 export const NONCE_OFFSET = 12;
 const NONCE_BYTES = 32;
@@ -35,19 +34,19 @@ export function sourceTxUrl(id: EvmFundingSourceId, hash: string): string {
 
 export function encodeFundingHook(args: { beneficiary: Address; depositor: Address; deadline: bigint }): Hex {
   return encodeAbiParameters(
-    [{ type: "uint8" }, { type: "address" }, { type: "bytes32" }, { type: "uint64" }],
-    [HOOK_VERSION, args.beneficiary, pad(args.depositor, { size: 32 }), args.deadline],
+    VAULT_HOOK_PARAMS,
+    [VAULT_HOOK_VERSION, args.beneficiary, pad(args.depositor, { size: 32 }), args.deadline],
   );
 }
 
-export function burnArguments(args: { amount: bigint; source: EvmFundingSourceId; account: Address; hookExecutor: Address; usdc?: Address; maxFee: bigint; now: number }) {
+export function burnArguments(args: { amount: bigint; source: EvmFundingSourceId; account: Address; hookExecutor: Address; maxFee: bigint; now: number }) {
   const executor = pad(args.hookExecutor, { size: 32 });
   const deadline = BigInt(Math.floor(args.now / 1000) + HOOK_DEADLINE_SECONDS);
   return [
     args.amount,
     CCTP_DOMAINS.arc,
     executor,
-    args.usdc ?? (EVM_FUNDING_SOURCES[args.source].usdc as Address),
+    EVM_FUNDING_SOURCES[args.source].usdc as Address,
     executor,
     args.maxFee,
     FAST_FINALITY,

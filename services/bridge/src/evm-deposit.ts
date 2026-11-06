@@ -1,6 +1,6 @@
-import { CCTP_DOMAINS, type BridgeTransfer, type TransferRoute } from "@noirwire/shared";
+import { CCTP_DOMAINS, CHAIN_CCTP_DOMAIN, ROUTE_ENDPOINTS, type BridgeTransfer, type TransferRoute } from "@noirwire/shared";
 import { createPublicClient, http, parseEventLogs, size, zeroAddress, type Hex, type PublicClient } from "viem";
-import { BurnRefused, type AdapterContext, type DeliverResult, type RouteAdapter, type TreasuryExecutor } from "./executor.ts";
+import { BurnRefused, DEPOSITOR_BURN_ROUTES, type AdapterContext, type DeliverResult, type RouteAdapter, type TreasuryExecutor } from "./executor.ts";
 import { messageTransmitterV2Abi, type EvmDriver } from "./evm.ts";
 import { decodeVaultHookData, VAULT_HOOK_VERSION } from "./hooks.ts";
 import { addressToBytes32, BURN_BODY_VERSION, decodeBurnBody, decodeMessage, MESSAGE_VERSION } from "./message.ts";
@@ -9,16 +9,13 @@ import type { TransferStore } from "./transfers.ts";
 
 const HOOK_DATA_BYTES = 128;
 
-export const EVM_DEPOSIT_ROUTES: Readonly<Record<number, TransferRoute>> = {
-  [CCTP_DOMAINS.ethereum]: "ethereum-arc",
-  [CCTP_DOMAINS.base]: "base-arc",
-  [CCTP_DOMAINS.arbitrum]: "arbitrum-arc",
-};
+export const EVM_DEPOSIT_ROUTES: Readonly<Record<number, TransferRoute>> = Object.fromEntries(
+  [...DEPOSITOR_BURN_ROUTES].map((route) => [CHAIN_CCTP_DOMAIN[ROUTE_ENDPOINTS[route].from], route]),
+);
 
 export type EvmDepositSource = {
   label: string;
   tokenMessenger: Hex;
-  messageTransmitter: Hex;
   usdc: Hex;
 };
 
@@ -143,9 +140,7 @@ export class EvmDeposits implements EvmDepositApi {
     for (const message of observed.messages) {
       const burn = this.verify(domain, source, message);
       if (!burn) continue;
-      const transfer = this.executor.adoptBurn({ route, burnTx, amount: burn.amount, beneficiary: burn.beneficiary, maxFee: burn.maxFee });
-      void this.executor.advance(transfer.transferId);
-      return transfer;
+      return this.executor.adoptAndAdvance({ route, burnTx, amount: burn.amount, beneficiary: burn.beneficiary, maxFee: burn.maxFee });
     }
     throw new DepositRefused("This transaction is not a deposit into the NoirWire vault, so the bridge will not relay it.");
   }

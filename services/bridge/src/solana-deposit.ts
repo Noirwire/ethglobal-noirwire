@@ -201,9 +201,7 @@ export class SolanaDeposits implements SolanaDepositApi {
         continue;
       }
       if (hook.version !== VAULT_HOOK_VERSION || hook.solanaDepositor !== bytesToHex(owner.toBytes())) continue;
-      const transfer = this.executor.adoptBurn({ route: ROUTE, burnTx: signature, amount: burn.amount, beneficiary: hook.beneficiary });
-      void this.executor.advance(transfer.transferId);
-      return transfer;
+      return this.executor.adoptAndAdvance({ route: ROUTE, burnTx: signature, amount: burn.amount, beneficiary: hook.beneficiary });
     }
     throw new DepositRefused("This transaction is not a deposit into the NoirWire vault, so the bridge will not relay it.");
   }

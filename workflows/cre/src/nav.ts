@@ -1,4 +1,5 @@
 import {
+  INTENT_ROUTES,
   SETTLED_TRANSFER_STATES,
   SOURCE_RECORD_PARAMS,
   fromBaseUnits,
@@ -203,16 +204,9 @@ export function marginRatioBps(accountValueUsdc6: bigint, marginUsedUsdc6: bigin
   return (accountValueUsdc6 * BPS) / marginUsedUsdc6;
 }
 
-const ROUTE_CODE = {
-  "arc-hypercore": 0,
-  "hypercore-arc": 1,
-  "arc-solana": 2,
-  "solana-arc": 3,
-  "solana-hypercore": 4,
-  "hypercore-solana": 5,
-} as const satisfies Partial<Record<TransferRoute, number>>;
+export type IntentRoute = (typeof INTENT_ROUTES)[number];
 
-export type IntentRoute = keyof typeof ROUTE_CODE;
+const ROUTE_CODE = Object.fromEntries(INTENT_ROUTES.map((route, code) => [route, code])) as Record<IntentRoute, number>;
 
 export function toIntentRoute(route: TransferRoute): IntentRoute {
   if (!(route in ROUTE_CODE)) throw new Error(`route ${route} has no onchain intent code`);

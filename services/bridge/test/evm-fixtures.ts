@@ -13,7 +13,6 @@ export const SOURCES: Record<number, EvmDepositSource> = Object.fromEntries(
     {
       label: source.label,
       tokenMessenger: CCTP_TESTNET_CONTRACTS.tokenMessengerV2,
-      messageTransmitter: CCTP_TESTNET_CONTRACTS.messageTransmitterV2,
       usdc: source.usdc,
     },
   ]),

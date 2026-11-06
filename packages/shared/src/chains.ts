@@ -1,3 +1,5 @@
+import type { TransferRoute } from "./schemas.ts";
+
 export const CCTP_DOMAINS = {
   ethereum: 0,
   arbitrum: 3,
@@ -7,7 +9,39 @@ export const CCTP_DOMAINS = {
   arc: 26,
 } as const;
 
-export type CctpDomain = (typeof CCTP_DOMAINS)[keyof typeof CCTP_DOMAINS];
+export type RouteChain = "arc" | "solana" | "hypercore" | "ethereum" | "base" | "arbitrum";
+
+export const CHAIN_CCTP_DOMAIN: Record<RouteChain, number> = {
+  arc: CCTP_DOMAINS.arc,
+  solana: CCTP_DOMAINS.solana,
+  hypercore: CCTP_DOMAINS.hyperEvm,
+  ethereum: CCTP_DOMAINS.ethereum,
+  base: CCTP_DOMAINS.base,
+  arbitrum: CCTP_DOMAINS.arbitrum,
+};
+
+export const ROUTE_ENDPOINTS: Record<TransferRoute, { from: RouteChain; to: RouteChain }> = {
+  "arc-solana": { from: "arc", to: "solana" },
+  "solana-arc": { from: "solana", to: "arc" },
+  "ethereum-arc": { from: "ethereum", to: "arc" },
+  "base-arc": { from: "base", to: "arc" },
+  "arbitrum-arc": { from: "arbitrum", to: "arc" },
+  "arc-hypercore": { from: "arc", to: "hypercore" },
+  "hypercore-arc": { from: "hypercore", to: "arc" },
+  "solana-hypercore": { from: "solana", to: "hypercore" },
+  "hypercore-solana": { from: "hypercore", to: "solana" },
+};
+
+export const INTENT_ROUTES = [
+  "arc-hypercore",
+  "hypercore-arc",
+  "arc-solana",
+  "solana-arc",
+  "solana-hypercore",
+  "hypercore-solana",
+] as const satisfies readonly TransferRoute[];
+
+export const ARC_TESTNET_USDC = "0x3600000000000000000000000000000000000000";
 
 export const NETWORKS = {
   arcTestnet: {

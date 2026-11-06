@@ -1,6 +1,6 @@
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
-import { topUpIntent, type TopUpIntent, type TransferRoute } from "@noirwire/shared";
+import { INTENT_ROUTES, topUpIntent, type TopUpIntent, type TransferRoute } from "@noirwire/shared";
 import { parseAbiItem, type Hex, type PublicClient } from "viem";
 import { IntentRejected, RouteUnavailable, type TreasuryExecutor } from "./executor.ts";
 
@@ -8,14 +8,7 @@ export const topUpIntentRecordedEvent = parseAbiItem(
   "event TopUpIntentRecorded(bytes32 indexed intentId, uint64 closeId, uint8 route, uint256 amount, uint16 marginRatioBps, uint8 reason)",
 );
 
-const ROUTES: readonly TransferRoute[] = [
-  "arc-hypercore",
-  "hypercore-arc",
-  "arc-solana",
-  "solana-arc",
-  "solana-hypercore",
-  "hypercore-solana",
-];
+const ROUTES: readonly TransferRoute[] = INTENT_ROUTES;
 const REASONS: readonly TopUpIntent["reason"][] = ["margin-low", "margin-urgent", "surplus-return", "solana-rebalance"];
 
 export type IntentLog = {
