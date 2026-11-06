@@ -1,0 +1,34 @@
+{
+  "schedule": "0 */5 * * * *",
+  "maxSourceAgeSec": 900,
+  "maxPriceAgeSec": 7200,
+  "readAt": "latest",
+  "arc": {
+    "chainName": "arc-testnet",
+    "shareVault": "0x00000000000000000000000000000000000fa017",
+    "usdc": "0x3600000000000000000000000000000000000000",
+    "navReceiver": "0x00000000000000000000000000000000000a11ce",
+    "gasLimit": "500000",
+    "epochAbiFragment": "function currentEpoch() view returns (uint64)",
+    "supplyAbiFragment": "function totalSupply() view returns (uint256)"
+  },
+  "hyperliquid": {
+    "infoUrl": "https://api.hyperliquid-testnet.xyz/info",
+    "user": "0x0000000000000000000000000000000000000000"
+  },
+  "maker": { "apiUrl": "http://127.0.0.1:8787", "account": "solana:noirwire-maker" },
+  "bridge": { "apiUrl": "http://127.0.0.1:8787", "account": "cctp:in-transit" },
+  "aqua": {
+    "apiUrl": "http://127.0.0.1:8787",
+    "account": "aqua:arbitrum-fork-maker",
+    "feedChainName": "ethereum-testnet-sepolia-arbitrum-1",
+    "btcUsdFeed": "0x56a43EB56Da12C0dc1D972ACb089c06a5dEF8e69"
+  },
+  "bands": {
+    "lowBps": 20000,
+    "urgentBps": 13000,
+    "surplusBps": 40000,
+    "targetBps": 30000,
+    "maxIntentUsdc6": "5000000000"
+  }
+}
