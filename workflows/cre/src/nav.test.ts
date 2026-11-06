@@ -13,7 +13,7 @@ import {
   type MarginBands,
   type Readings,
 } from "./nav.ts";
-import { navSnapshot, topUpIntent, type BridgeTransfer, type NavSource } from "./shared.ts";
+import { navSnapshot, topUpIntent, type BridgeTransfer, type NavSource } from "@noirwire/shared";
 
 const NOW = new Date("2026-11-06T07:00:00.000Z");
 const ago = (seconds: number) => new Date(NOW.getTime() - seconds * 1000);

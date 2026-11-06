@@ -1,4 +1,3 @@
-import { encodeAbiParameters, keccak256, parseAbiParameters, toHex } from "viem";
 import {
   NAV_LEG_CODES,
   SETTLED_TRANSFER_STATES,
@@ -10,9 +9,10 @@ import {
   type NavSource,
   type TopUpIntent,
   type TransferRoute,
-} from "./shared.ts";
+} from "@noirwire/shared";
+import { encodeAbiParameters, keccak256, parseAbiParameters, toHex } from "viem";
 
-export type IntentReason = TopUpIntent["reason"];
+type IntentReason = TopUpIntent["reason"];
 
 export interface MarginBands {
   lowBps: number;
@@ -31,10 +31,13 @@ export interface Readings {
   shareSupply18: bigint;
 }
 
-export const LEG_ORDER: NavLeg[] = ["arc-vault-cash", "solana-maker", "hyperliquid", "aqua", "in-transit"];
+const LEG_ORDER: NavLeg[] = ["arc-vault-cash", "solana-maker", "hyperliquid", "aqua", "in-transit"];
 
 const UINT16_MAX = 65535n;
 const E18 = 10n ** 18n;
+const BPS = 10000n;
+const WBTC_E8_TIMES_USD_E8_TO_USDC6 = 10n ** 10n;
+const SHARE_DECIMALS_OVER_USDC_DECIMALS = 10n ** 12n;
 
 export function parseDecimalToUnits(value: string, decimals: number): bigint {
   const trimmed = value.trim();
@@ -46,10 +49,10 @@ export function parseDecimalToUnits(value: string, decimals: number): bigint {
 }
 
 export function valueWbtcInUsdc6(wbtcE8: bigint, btcUsdE8: bigint): bigint {
-  return (wbtcE8 * btcUsdE8) / 10n ** 10n;
+  return (wbtcE8 * btcUsdE8) / WBTC_E8_TIMES_USD_E8_TO_USDC6;
 }
 
-export function transferValue(transfer: BridgeTransfer): bigint {
+function transferValue(transfer: BridgeTransfer): bigint {
   return BigInt(transfer.netMinted ?? transfer.grossAmount);
 }
 
@@ -77,7 +80,7 @@ function assertReadableTimes(readings: Readings): void {
   }
 }
 
-export function buildSources(readings: Readings): { sources: NavSource[]; inTransit: BridgeTransfer[] } {
+function buildSources(readings: Readings): { sources: NavSource[]; inTransit: BridgeTransfer[] } {
   assertReadableTimes(readings);
   const inTransit = selectInTransit(readings.transfers.items);
   const inTransitTotal = inTransit.reduce((sum, transfer) => sum + transferValue(transfer), 0n);
@@ -152,7 +155,7 @@ export function oldestObservedAtSec(sources: NavSource[]): bigint {
 
 export function sharePriceE18(netAssets6: bigint, shareSupply18: bigint): bigint {
   if (shareSupply18 === 0n) return E18;
-  return (netAssets6 * 10n ** 12n * E18) / shareSupply18;
+  return (netAssets6 * SHARE_DECIMALS_OVER_USDC_DECIMALS * E18) / shareSupply18;
 }
 
 const SOURCE_RECORD_PARAMS = [
@@ -169,7 +172,7 @@ const SOURCE_RECORD_PARAMS = [
   },
 ] as const;
 
-export function accountHash(account: string): `0x${string}` {
+function accountHash(account: string): `0x${string}` {
   return keccak256(toHex(account));
 }
 
@@ -217,7 +220,7 @@ export function buildSnapshot(input: {
 
 export function marginRatioBps(accountValueUsdc6: bigint, marginUsedUsdc6: bigint): bigint | null {
   if (marginUsedUsdc6 <= 0n) return null;
-  return (accountValueUsdc6 * 10000n) / marginUsedUsdc6;
+  return (accountValueUsdc6 * BPS) / marginUsedUsdc6;
 }
 
 const ROUTE_CODE: Record<TransferRoute, number> = {
@@ -266,11 +269,11 @@ export function planTopUp(input: {
   if (ratio < BigInt(bands.lowBps)) {
     route = "arc-hypercore";
     reason = ratio < BigInt(bands.urgentBps) ? "margin-urgent" : "margin-low";
-    amount = (targetBps * marginUsedUsdc6 + 9999n) / 10000n - accountValueUsdc6;
+    amount = (targetBps * marginUsedUsdc6 + (BPS - 1n)) / BPS - accountValueUsdc6;
   } else if (ratio > BigInt(bands.surplusBps)) {
     route = "hypercore-arc";
     reason = "surplus-return";
-    amount = accountValueUsdc6 - (targetBps * marginUsedUsdc6) / 10000n;
+    amount = accountValueUsdc6 - (targetBps * marginUsedUsdc6) / BPS;
   } else {
     return null;
   }

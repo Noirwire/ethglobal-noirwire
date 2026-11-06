@@ -1,6 +1,6 @@
+import { bridgeTransfer, type BridgeTransfer } from "@noirwire/shared";
 import { z } from "zod";
 import { parseDecimalToUnits } from "./nav.ts";
-import { bridgeTransfer, type BridgeTransfer } from "./shared.ts";
 
 const unsigned = z.string().regex(/^\d+$/);
 const isoTime = z.iso.datetime();

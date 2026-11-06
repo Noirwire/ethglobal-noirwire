@@ -1,10 +1,10 @@
+import type { NavSnapshot, TopUpIntent } from "@noirwire/shared";
 import { decodeAbiParameters, encodeAbiParameters, parseAbiParameters, type Hex } from "viem";
 import { oldestObservedAtSec, reasonCode, routeCode } from "./nav.ts";
-import type { NavSnapshot, TopUpIntent } from "./shared.ts";
 
-export const KIND_NAV = 1;
-export const KIND_TOP_UP = 2;
-export const REPORT_VERSION = 1;
+const KIND_NAV = 1;
+const KIND_TOP_UP = 2;
+const REPORT_VERSION = 1;
 
 const NAV_BODY = parseAbiParameters(
   "(uint8 version, uint64 closeId, uint64 observedAt, uint256 totalAssets, uint256 totalLiabilities, bytes32 sourcesHash) report",
@@ -14,7 +14,7 @@ const TOP_UP_BODY = parseAbiParameters(
 );
 const ENVELOPE = parseAbiParameters("uint8 kind, bytes body");
 
-export function encodeNavBody(snapshot: NavSnapshot): Hex {
+function encodeNavBody(snapshot: NavSnapshot): Hex {
   return encodeAbiParameters(NAV_BODY, [
     {
       version: REPORT_VERSION,
@@ -27,7 +27,7 @@ export function encodeNavBody(snapshot: NavSnapshot): Hex {
   ]);
 }
 
-export function encodeTopUpBody(intent: TopUpIntent): Hex {
+function encodeTopUpBody(intent: TopUpIntent): Hex {
   return encodeAbiParameters(TOP_UP_BODY, [
     {
       version: REPORT_VERSION,
@@ -41,7 +41,7 @@ export function encodeTopUpBody(intent: TopUpIntent): Hex {
   ]);
 }
 
-export function encodeEnvelope(kind: number, body: Hex): Hex {
+function encodeEnvelope(kind: number, body: Hex): Hex {
   return encodeAbiParameters(ENVELOPE, [kind, body]);
 }
 

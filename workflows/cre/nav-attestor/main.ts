@@ -17,32 +17,36 @@ import {
   type HTTPSendRequester,
   type Runtime,
 } from "@chainlink/cre-sdk";
-import { decodeFunctionResult, encodeFunctionData, parseAbi, stringToHex, zeroAddress, type Hex } from "viem";
+import {
+  decodeFunctionResult,
+  encodeFunctionData,
+  parseAbi,
+  stringToHex,
+  zeroAddress,
+  type Abi,
+  type Hex,
+} from "viem";
 import { configSchema, type Config } from "../src/config.ts";
 import { assertFresh, buildSnapshot, planTopUp } from "../src/nav.ts";
 import { encodeNavReport, encodeTopUpReport } from "../src/report.ts";
-import { parseAquaInventory, parseHyperliquid, parseMakerEquity, parseTransfers } from "../src/sources.ts";
-
-interface MakerFlat {
-  equityUsdc6: bigint;
-  observedAtMs: number;
-}
-
-interface AquaFlat {
-  usdc6: bigint;
-  wbtcE8: bigint;
-  observedAtMs: number;
-}
-
-interface HyperliquidFlat {
-  accountValueUsdc6: bigint;
-  marginUsedUsdc6: bigint;
-  observedAtMs: number;
-}
+import {
+  parseAquaInventory,
+  parseHyperliquid,
+  parseMakerEquity,
+  parseTransfers,
+  type AquaInventory,
+  type HyperliquidAccount,
+  type MakerEquity,
+} from "../src/sources.ts";
 
 interface TransfersFlat {
   json: string;
 }
+
+type HttpRequest = Parameters<HTTPSendRequester["sendRequest"]>[0];
+
+const MS_PER_SEC = 1000;
+const HTTP_OK = 200;
 
 const SHARE_VAULT = parseAbi([
   "function navCash() view returns (uint256)",
@@ -55,39 +59,35 @@ const FEED = parseAbi([
 
 const bodyText = (body: Uint8Array): string => new TextDecoder().decode(body);
 
-function expectOk(statusCode: number, label: string): void {
-  if (statusCode !== 200) throw new Error(`${label} returned HTTP ${statusCode}`);
+function fetchText(requester: HTTPSendRequester, request: HttpRequest, label: string): string {
+  const response = requester.sendRequest(request).result();
+  if (response.statusCode !== HTTP_OK) throw new Error(`${label} returned HTTP ${response.statusCode}`);
+  return bodyText(response.body);
 }
 
-const fetchMaker = (requester: HTTPSendRequester, url: string): MakerFlat => {
-  const response = requester.sendRequest({ url: `${url}/v1/maker/equity`, method: "GET" }).result();
-  expectOk(response.statusCode, "maker equity");
-  return parseMakerEquity(bodyText(response.body));
-};
+const fetchMaker = (requester: HTTPSendRequester, url: string): MakerEquity =>
+  parseMakerEquity(fetchText(requester, { url: `${url}/v1/maker/equity`, method: "GET" }, "maker equity"));
 
-const fetchAqua = (requester: HTTPSendRequester, url: string): AquaFlat => {
-  const response = requester.sendRequest({ url: `${url}/v1/aqua/inventory`, method: "GET" }).result();
-  expectOk(response.statusCode, "aqua inventory");
-  return parseAquaInventory(bodyText(response.body));
-};
+const fetchAqua = (requester: HTTPSendRequester, url: string): AquaInventory =>
+  parseAquaInventory(fetchText(requester, { url: `${url}/v1/aqua/inventory`, method: "GET" }, "aqua inventory"));
 
-const fetchHyperliquid = (requester: HTTPSendRequester, url: string, user: string): HyperliquidFlat => {
-  const response = requester
-    .sendRequest({
-      url,
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: hexToBase64(stringToHex(JSON.stringify({ type: "clearinghouseState", user }))),
-    })
-    .result();
-  expectOk(response.statusCode, "hyperliquid");
-  return parseHyperliquid(bodyText(response.body));
-};
+const fetchHyperliquid = (requester: HTTPSendRequester, url: string, user: string): HyperliquidAccount =>
+  parseHyperliquid(
+    fetchText(
+      requester,
+      {
+        url,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: hexToBase64(stringToHex(JSON.stringify({ type: "clearinghouseState", user }))),
+      },
+      "hyperliquid",
+    ),
+  );
 
 const fetchTransfers = (requester: HTTPSendRequester, url: string): TransfersFlat => {
-  const response = requester.sendRequest({ url: `${url}/v1/transfers?state=in-flight`, method: "GET" }).result();
-  expectOk(response.statusCode, "bridge transfers");
-  const transfers = parseTransfers(bodyText(response.body)).sort((a, b) => (a.transferId < b.transferId ? -1 : 1));
+  const text = fetchText(requester, { url: `${url}/v1/transfers?state=in-flight`, method: "GET" }, "bridge transfers");
+  const transfers = parseTransfers(text).sort((a, b) => (a.transferId < b.transferId ? -1 : 1));
   return { json: JSON.stringify(transfers) };
 };
 
@@ -101,18 +101,17 @@ function readContract<T>(
   runtime: Runtime<Config>,
   client: EVMClient,
   to: string,
-  abi: ReturnType<typeof parseAbi>,
+  abi: Abi,
   functionName: string,
-  args: unknown[] = [],
 ): T {
-  const data = encodeFunctionData({ abi, functionName, args } as never);
+  const data = encodeFunctionData({ abi, functionName });
   const reply = client
     .callContract(runtime, {
       call: encodeCallMsg({ from: zeroAddress, to: to as Hex, data }),
       blockNumber: runtime.config.readAt === "latest" ? LATEST_BLOCK_NUMBER : LAST_FINALIZED_BLOCK_NUMBER,
     })
     .result();
-  return decodeFunctionResult({ abi, functionName, data: bytesToHex(reply.data) } as never) as T;
+  return decodeFunctionResult({ abi, functionName, data: bytesToHex(reply.data) }) as T;
 }
 
 function writeReport(runtime: Runtime<Config>, client: EVMClient, payload: Hex): string {
@@ -152,27 +151,27 @@ const onCron = (runtime: Runtime<Config>): string => {
     "latestRoundData",
   );
   if (round[1] <= 0n) throw new Error("BTC/USD feed returned a non-positive answer");
-  assertFresh("btc-usd-feed", new Date(Number(round[3]) * 1000), now, config.maxPriceAgeSec);
+  assertFresh("btc-usd-feed", new Date(Number(round[3]) * MS_PER_SEC), now, config.maxPriceAgeSec);
 
   const maker = http
     .sendRequest(
       runtime,
       fetchMaker,
-      ConsensusAggregationByFields<MakerFlat>({ equityUsdc6: median, observedAtMs: median }),
+      ConsensusAggregationByFields<MakerEquity>({ equityUsdc6: median, observedAtMs: median }),
     )(config.maker.apiUrl)
     .result();
   const aqua = http
     .sendRequest(
       runtime,
       fetchAqua,
-      ConsensusAggregationByFields<AquaFlat>({ usdc6: median, wbtcE8: median, observedAtMs: median }),
+      ConsensusAggregationByFields<AquaInventory>({ usdc6: median, wbtcE8: median, observedAtMs: median }),
     )(config.aqua.apiUrl)
     .result();
   const hyperliquid = http
     .sendRequest(
       runtime,
       fetchHyperliquid,
-      ConsensusAggregationByFields<HyperliquidFlat>({
+      ConsensusAggregationByFields<HyperliquidAccount>({
         accountValueUsdc6: median,
         marginUsedUsdc6: median,
         observedAtMs: median,

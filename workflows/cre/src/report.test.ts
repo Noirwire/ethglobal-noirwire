@@ -7,7 +7,7 @@ import {
   encodeTopUpReport,
 } from "./report.ts";
 import { intentId } from "./nav.ts";
-import { navSnapshot, topUpIntent, type NavSnapshot, type TopUpIntent } from "./shared.ts";
+import { navSnapshot, topUpIntent, type NavSnapshot, type TopUpIntent } from "@noirwire/shared";
 
 const SOURCES_HASH = `0x${"aa".repeat(32)}` as const;
 const INTENT_ID = `0x${"bb".repeat(32)}` as const;

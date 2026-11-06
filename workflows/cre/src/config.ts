@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const httpUrl = z.string().regex(/^https?:\/\/\S+$/);
-const evmAddress =z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 
 export const configSchema = z.object({
   schedule: z.string(),
