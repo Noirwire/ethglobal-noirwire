@@ -14,7 +14,7 @@ import {
 } from "./journal.ts";
 import { minOrderSize } from "./hl-rules.ts";
 import { buildTopUpIntent, classifyMargin, marginRatioBps, type MarginBand } from "./margin.ts";
-import { abs, btcToDecimal } from "./numbers.ts";
+import { abs } from "./numbers.ts";
 import {
   aquaBandFor,
   holdThreshold8,

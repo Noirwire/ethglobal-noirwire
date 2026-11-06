@@ -1,19 +1,18 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { BTC_DECIMALS, hedgeSideFor, toBaseUnits, type MakerFill } from "@noirwire/shared";
+import { BTC_DECIMALS, hedgeSideFor, price, toBaseUnits, type MakerFill } from "@noirwire/shared";
 import { z } from "zod";
 import { FillSourceConfigError, type FillBatch, type FillSource } from "../types.ts";
 
 const TAPE_LIMIT = 500;
 const NO_SEQUENCE = -1;
 
-const decimal = z.string().regex(/^\d+(\.\d+)?$/);
 const tag = z.string().regex(/^\d+$/);
 
 const tapeFill = z.object({
   market: z.string().min(1),
-  price: decimal,
-  size: decimal,
+  price,
+  size: price,
   takerSide: z.enum(["buy", "sell"]),
   takerTag: tag,
   makerTag: tag,

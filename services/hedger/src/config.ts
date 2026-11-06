@@ -1,4 +1,4 @@
-import { USDC_DECIMALS } from "@noirwire/shared";
+import { btc8, signedBtc8, USDC_DECIMALS } from "@noirwire/shared";
 import { z } from "zod";
 
 export class ConfigError extends Error {}
@@ -14,13 +14,13 @@ const envSchema = z.object({
   HEDGE_ENABLED: enabledFlag.optional(),
   BOOK_MARKET: z.string().default("NBTC-PERP"),
   HEDGE_COIN: z.string().default("BTC"),
-  BOOK_API_URL: z.string().url().optional(),
-  HOUSE_MAKER_TAG: z.string().regex(/^\d+$/, "decimal string").optional(),
+  BOOK_API_URL: z.url().optional(),
+  HOUSE_MAKER_TAG: intString.optional(),
   REPLAY_FILE: z.string().optional(),
   HL_ACCOUNT_ADDRESS: address.optional(),
   HL_AGENT_PRIVATE_KEY: privateKey.optional(),
-  DEADBAND_BTC8: intString.default("20000"),
-  MAX_ORDER_BTC8: intString.default("50000000"),
+  DEADBAND_BTC8: btc8.default("20000"),
+  MAX_ORDER_BTC8: btc8.default("50000000"),
   PRICE_BAND_BPS: z.coerce.number().int().min(1).max(500).default(30),
   SOFT_LIMIT_USD: z.coerce.number().positive().default(2000),
   HARD_LIMIT_USD: z.coerce.number().positive().default(10000),
@@ -30,7 +30,7 @@ const envSchema = z.object({
   UNKNOWN_ORDER_GRACE_MS: z.coerce.number().int().nonnegative().default(10_000),
   TICK_MS: z.coerce.number().int().positive().default(2_000),
   HEDGE_LEVERAGE_TARGET: z.coerce.number().min(3).max(5).default(4),
-  INITIAL_MAKER_POSITION_BTC8: z.string().regex(/^-?\d+$/).default("0"),
+  INITIAL_MAKER_POSITION_BTC8: signedBtc8.default("0"),
   JOURNAL_FILE: z.string().default("data/hedger-journal.ndjson"),
   EVENTS_FILE: z.string().default("data/hedger-events.ndjson"),
   CURSOR_FILE: z.string().default("data/tape-cursor.json"),
