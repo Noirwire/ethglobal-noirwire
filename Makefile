@@ -177,6 +177,20 @@ hedger-testnet-up: _require-testnet ## TESTNET (CONFIRM=testnet): hedger against
 bridge-testnet-up: _require-testnet ## TESTNET (CONFIRM=testnet): bridge against Arc testnet and Solana devnet, keys from the Keychain (operator, solana-operator); needs HOOK_EXECUTOR in the environment
 	$(call spawn,bridge-testnet,$(ROOT)/services/bridge,$(KEYS) run -e ARC_OPERATOR_KEY=operator -e HYPERCORE_ACCOUNT_KEY=operator -f SOLANA_KEYPAIR_PATH=solana-operator -- node_modules/.bin/tsx src/main.ts)
 
+TESTNET_REQUIRED_ENV := BRIDGE_API_TOKEN REBALANCE_API_TOKEN HOOK_EXECUTOR SHARE_VAULT NAV_RECEIVER DESTINATION_ALLOWLIST REBALANCE_MAKER_OWNER HL_ACCOUNT_ADDRESS BOOK_API_URL
+
+.PHONY: testnet-up _require-testnet-env
+
+_require-testnet-env:
+	@missing=""; for name in $(TESTNET_REQUIRED_ENV); do \
+	  eval "value=\$${$$name:-}"; \
+	  [ -n "$$value" ] || missing="$$missing $$name"; \
+	done; \
+	if [ -n "$$missing" ]; then echo "refusing: set these in the environment first:$$missing (see docs/testnet.md)"; exit 1; fi
+
+testnet-up: _require-testnet _require-testnet-env bridge-testnet-up hedger-testnet-up ## TESTNET (CONFIRM=testnet): check the required env, then start the bridge and the hedger; HEDGE_ENABLED=1 turns hedge orders on (default 0). See docs/testnet.md
+	@echo "testnet services started; make status to check them, make down to stop what make started"
+
 keys-init: ## Generate a fresh key per role (deployer operator relayer hl-agent taker solana-operator solana-depositor) into the login Keychain; prints role and address only; FORCE=1 replaces. The key is on security's argv for a moment
 	$(KEYS) init
 

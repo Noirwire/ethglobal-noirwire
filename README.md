@@ -84,6 +84,27 @@ sequenceDiagram
 6. Every five minutes a Chainlink CRE workflow reads all legs, computes NAV and hedge margin health, and writes a report to `NavReceiver` on Arc.
 7. The vault settles each epoch at that NAV. The web app shows state, money movement and the NAV proof, with fills aggregated to protect the maker's trading.
 
+## Rebalancing
+
+Margin on Hyperliquid and collateral on Solana drift as the book trades. Two loops put the money back where it is needed. Both use the one Arc vault and Circle CCTP V2.
+
+**Hedge margin (from the vault).** When Hyperliquid margin is low or high, the Chainlink CRE workflow writes a top-up intent onchain to `NavReceiver`. The bridge watches for that event. Only such an onchain intent can make it release USDC from the Arc vault. It then moves the USDC with CCTP V2 to Hyperliquid, or, when margin is too high, brings the surplus back to the vault. A request over the bridge's HTTP API can never release vault funds.
+
+**Maker collateral (no vault).** The Solana market maker's positions are private. So the maker decides for itself when it holds too much or too little collateral, and asks the bridge to move it. The request carries an amount and a direction, never a position, equity or fill. The bridge moves a surplus to Hyperliquid, or tops the maker up from Hyperliquid. These two routes never touch the vault.
+
+The bridge has six routes:
+
+| Route | Moves | Trigger |
+| --- | --- | --- |
+| `arc-hypercore` | Vault USDC to the Hyperliquid account | Onchain top-up intent (margin low) |
+| `hypercore-arc` | Hyperliquid surplus back to the vault | Onchain top-up intent (margin high) |
+| `solana-hypercore` | Maker surplus to Hyperliquid | Maker request, direction `out` |
+| `hypercore-solana` | Hyperliquid USDC to the maker, to top it up | Maker request, direction `in` |
+| `solana-arc` | A Solana deposit into the vault, through `HookExecutor` | A depositor, from the web app |
+| `arc-solana` | Arc USDC to the Solana account | A top-up intent for that route |
+
+What has run, and where: the watcher, the vault release, the return step and the maker request API run only on a local chain with mock attestations, and the two Solana routes have run on a cloned local validator. No transfer has been sent over a public testnet, and the `hypercore-arc`, `solana-hypercore` and `hypercore-solana` routes have not touched Circle's HyperCore forwarding at all. The CRE workflow has only been simulated, never deployed to a DON. A maker-side top-up lands in the maker's own token account, not yet in its order book seat. The first live run is described in [docs/testnet.md](docs/testnet.md).
+
 ## Components
 
 | Path                  | What it does                                                                                         | Chain                  | Status                                                                     |
@@ -91,8 +112,8 @@ sequenceDiagram
 | `contracts/vault`     | `ShareVault`, `NavReceiver`, `HookExecutor`: async epoch vault, CRE report consumer, CCTP hook relay | Arc                    | Local chain with mocks; Arc testnet deploy script included; unaudited      |
 | `contracts/aqua`      | `HedgeGuard` swap guard for a 1inch Aqua strategy                                                    | Arbitrum               | Arbitrum One fork only; nothing is sent to a public network                |
 | `services/hedger`     | Polls the maker position, hedges on Hyperliquid, journals every order                                | Hyperliquid testnet    | Mock venue tested; testnet mode wired, first live order not yet exercised  |
-| `services/aqua-taker` | Ships the strategy, runs the demo taker bot, serves inventory for NAV                                | Arbitrum fork          | Fork only; the taker is demo demand, not organic routing                   |
-| `services/bridge`     | CCTP V2 treasury executor for `solana-arc`, `arc-solana`, `arc-hypercore`                            | Arc, Solana, HyperCore | Local mode and cloned Solana validator tested; no public testnet burn sent |
+| `services/aqua-taker` | Ships the guarded Aqua strategy, sets its hedge target, serves inventory for NAV; the fork also runs a taker that only exercises fills | Arbitrum fork          | Fork only; nothing is sent to a public network                             |
+| `services/bridge`     | CCTP V2 treasury executor with six routes, onchain top-up watcher, maker rebalance API               | Arc, Solana, HyperCore | Local mode and cloned Solana validator tested; no public testnet burn sent |
 | `workflows/cre`       | `nav-attestor` CRE workflow                                                                          | Arc                    | Compiles and simulates; not deployed to a DON                              |
 | `apps/web`            | Status, money and NAV proof pages, plus a deposit flow from Arc or Solana                            | Arc, Solana            | Local Next.js app; Solana deposit not yet signed by a wallet on devnet     |
 | `packages/shared`     | Shared schemas, units and trust codes                                                                | n/a                    | Library                                                                    |
@@ -124,7 +145,7 @@ make down          # stops exactly the PIDs recorded under .run/
 
 Background processes keep a PID file and log under `.run/` (gitignored). If a node already listens on 8545 or 8546 with the right chain id, `chains-up` reuses it and `down` leaves it alone. Override ports with `ARC_PORT`, `FORK_PORT`, `WEB_PORT`; set `ARBITRUM_RPC_URL` (and optionally `FORK_BLOCK`) for the fork.
 
-Targets that touch a public testnet (`deploy-arc-testnet`, `hedger-testnet-up`, `bridge-testnet-up`) refuse to run unless `CONFIRM=testnet` is set. `make solana-up` runs the bridge's cloned CCTP validator test (read-only against devnet), and `make cre-simulate` runs the CRE workflow simulation.
+Targets that touch a public testnet (`deploy-arc-testnet`, `hedger-testnet-up`, `bridge-testnet-up`, `testnet-up`) refuse to run unless `CONFIRM=testnet` is set. To bring the system up on public testnets, follow [docs/testnet.md](docs/testnet.md); `testnet-up` starts the bridge and the hedger once the required environment is set. `make solana-up` runs the bridge's cloned CCTP validator test (read-only against devnet), and `make cre-simulate` runs the CRE workflow simulation.
 
 Default local ports: hedger 8701, bridge 8702, Aqua inventory API 8703, web 3000.
 
@@ -160,7 +181,7 @@ contracts/
 services/
   hedger/           Position poller and Hyperliquid hedger
   bridge/           CCTP V2 treasury bridge and HTTP API
-  aqua-taker/       Aqua strategy setup, taker bot, inventory API
+  aqua-taker/       Aqua strategy, hedge target, inventory API, fork-only taker
 workflows/
   cre/              nav-attestor Chainlink CRE workflow
 packages/
@@ -170,6 +191,7 @@ packages/
   typescript-config/ Shared tsconfig files
 docs/
   interfaces.md     Units, encodings, ports
+  testnet.md        Runbook from funded wallets to a running system
 Makefile            Local stack entry points
 ```
 
