@@ -50,7 +50,7 @@ The loop from the Chainlink workflow to the money moving needs no operator.
 2. The onchain intent watcher (`src/intent-watcher.ts`) polls the receiver's logs from a cursor file, only up to `head - INTENT_CONFIRMATIONS`, and submits each decoded event to the executor. The cursor is written to a temp file, fsynced, renamed and the directory fsynced, and only after the page of events has been handled. A first run with no cursor starts at the current head (or `INTENT_START_BLOCK`); a corrupt cursor stops the watcher instead of guessing.
 3. The executor keys every transfer on its `intentId` (`<intentId>:<chunk>`), so a replayed log, a restart or the same event seen twice returns the transfers that already exist and moves nothing again. A malformed log is skipped and counted. An intent the bridge cannot serve (no adapter for the route, a cap, the allowlist) is recorded as a `failed` transfer with the reason, for example `route not available: route hypercore-arc is not supported`, so it is visible and a replay does not retry it. Refused records do not use up the daily cap.
 4. For `arc-hypercore`, before each chunk is burned the bridge calls `ShareVault.moveToVenue(<bridge Arc treasury>, amount)` (`src/vault.ts`). The treasury address is the address of `ARC_OPERATOR_KEY`, which must be the vault's operator and be on its destination allowlist. If the simulation shows the vault would revert (per-call cap, per-epoch cap, not enough idle assets, not allowlisted), the transfer goes to `failed` with `vault refused the release: <reason>`, it is logged, nothing is burned and it is never retried. Later chunks of a split intent are released only when their turn comes.
-5. For a transfer whose route destination is the vault address, the last step after `minted` is `ShareVault.acknowledgeReturn(net amount)`, then `credited`. It is generic: a new return adapter only has to mint to the vault and set the route destination to the vault address. The `hypercore-arc` adapter itself is not built here, so intents on it end as `route not available`.
+5. For a transfer whose route destination is the vault address, the last step after `minted` is `ShareVault.acknowledgeReturn(net amount)`, then `credited`. It is generic: a new return adapter only has to mint to the vault and set the route destination to the vault address. The `hypercore-arc` adapter is wired in testnet mode when both `HYPERCORE_ACCOUNT_KEY` and `SHARE_VAULT` are set; without them intents on it end as `route not available`.
 
 ### Crash safety
 
@@ -79,10 +79,13 @@ Every transfer carries `attester`: `circle-iris` when the Iris client signs off,
 
 - `GET /v1/transfers?state=in-flight` array of `BridgeTransfer` (the NAV attestor reads this), with `released` on vault funded routes; other `state` values filter, none lists all
 - `GET /v1/transfers/:id`
-- `POST /v1/intents` body is a `TopUpIntent`; 202 with the created transfers, 400 invalid, 422 rejected by policy
+- `POST /v1/intents` body is a `TopUpIntent`; 202 with the created transfers, 400 invalid, 403 for routes that release from the vault, 422 rejected by policy
+- `GET /v1/deposits/solana/status`, `POST /v1/deposits/solana/prepare` (200, body `{owner, amount, beneficiary}`) and `POST /v1/deposits/solana/submitted` (202, body `{signature}`); answers 409 when Solana deposits are not configured, 404 for an unknown transaction, 422 for a refused deposit
+- `POST /v1/rebalance/requests`, `GET /v1/rebalance/requests/:id` and `POST /v1/rebalance/requests/:id/funded`, described under the rebalance routes; they exist only when `REBALANCE_API_TOKEN` is set and every one of them, GET included, requires that token
+- `POST /v1/dev/deposit` in local mode only
 - `GET /events` server-sent `FlowEvent` of kind `transfer`
 
-Every POST requires `Authorization: Bearer <BRIDGE_API_TOKEN>` (constant-time compare, 401 otherwise); GETs stay public. Testnet mode refuses to start without `BRIDGE_API_TOKEN` (at least 32 characters). Local mode allows it unset, in which case POSTs are open and the startup log says so. The web server sends the same value from its own `BRIDGE_API_TOKEN` env; never expose it to the browser.
+Every other POST requires `Authorization: Bearer <BRIDGE_API_TOKEN>` (constant-time compare, 401 otherwise); the remaining GETs stay public. Testnet mode refuses to start without `BRIDGE_API_TOKEN` (at least 32 characters). Local mode allows it unset, in which case POSTs are open and the startup log says so. The web server sends the same value from its own `BRIDGE_API_TOKEN` env; never expose it to the browser.
 
 Intents also arrive from a FlowEvent NDJSON file (`INTENT_FILE`), polled every 5 s; only `kind: "intent"` lines are used.
 
@@ -125,6 +128,7 @@ Testnet (the operator's first real burn): nothing in the test suite sends to a p
 | `INTENT_CURSOR_FILE` | durable cursor, default `./data/intent-cursor.json` |
 | `INTENT_START_BLOCK` | first block on a run with no cursor file, default the current head |
 | `HYPERCORE_RECIPIENT` | HyperCore account (EVM address) that receives margin |
+| `HYPERCORE_ACCOUNT_KEY` | key that signs `hypercore-arc` and `hypercore-solana` withdrawals; `hypercore-arc` also needs `SHARE_VAULT` |
 | `RETURN_BENEFICIARY` | Arc address credited on `solana-arc` returns |
 | `DESTINATION_ALLOWLIST`, `DAILY_CAP`, `PER_TRANSFER_CAP`, `BRIDGE_JOURNAL`, `INTENT_FILE`, `IRIS_URL` | policy and plumbing |
 
