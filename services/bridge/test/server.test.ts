@@ -3,7 +3,7 @@ import { appendFileSync, writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { TreasuryExecutor, type RouteAdapter } from "../src/executor.ts";
 import { LocalAttester } from "../src/iris.ts";
-import { createBridgeServer, IntentFileWatcher } from "../src/server.ts";
+import { createBridgeServer, IntentFileWatcher, resolveApiToken } from "../src/server.ts";
 import { TransferStore } from "../src/transfers.ts";
 import { newTransfer, tempJournal, word } from "./helpers.ts";
 
@@ -95,6 +95,28 @@ describe("HTTP API", () => {
     expect(seen).toEqual([undefined, 2_000_000n]);
   });
 
+  it("requires the bearer token on every POST when one is configured, and leaves GETs public", async () => {
+    const { store, executor } = setup();
+    const token = "t".repeat(40);
+    const server = createBridgeServer(store, executor, () => ({ transfers: [], beneficiary: "0xabc" }), undefined, token);
+    const base = await listen(server);
+    const intent = { intentId: word(7), closeId: 1, route: "arc-solana", amount: "1000000", reason: "solana-rebalance", marginRatioBps: 0 };
+    const paths = ["/v1/intents", "/v1/dev/deposit", "/v1/deposits/solana/prepare", "/v1/deposits/solana/submitted"];
+    for (const path of paths) {
+      expect((await fetch(`${base}${path}`, { method: "POST", body: JSON.stringify(intent) })).status).toBe(401);
+      const wrong = { authorization: `Bearer ${"x".repeat(40)}` };
+      expect((await fetch(`${base}${path}`, { method: "POST", body: JSON.stringify(intent), headers: wrong })).status).toBe(401);
+      const short = { authorization: "Bearer t" };
+      expect((await fetch(`${base}${path}`, { method: "POST", body: JSON.stringify(intent), headers: short })).status).toBe(401);
+    }
+    expect(store.list()).toHaveLength(0);
+    const headers = { authorization: `Bearer ${token}` };
+    expect((await fetch(`${base}/v1/intents`, { method: "POST", body: JSON.stringify(intent), headers })).status).toBe(202);
+    expect((await fetch(`${base}/v1/dev/deposit`, { method: "POST", headers })).status).toBe(202);
+    expect((await fetch(`${base}/v1/transfers`)).status).toBe(200);
+    expect((await fetch(`${base}/v1/deposits/solana/status`)).status).toBe(200);
+  });
+
   it("streams transfer FlowEvents over SSE", async () => {
     const { server, store } = setup();
     const base = await listen(server);
@@ -109,6 +131,16 @@ describe("HTTP API", () => {
     const event = JSON.parse(line.slice(6)) as { kind: string; transfer: { transferId: string } };
     expect(event.kind).toBe("transfer");
     expect(event.transfer.transferId).toBe("sse");
+  });
+});
+
+describe("resolveApiToken", () => {
+  it("is required and at least 32 chars on testnet, optional on local", () => {
+    expect(() => resolveApiToken("testnet", undefined)).toThrow(/BRIDGE_API_TOKEN/);
+    expect(() => resolveApiToken("testnet", "short")).toThrow(/32/);
+    expect(resolveApiToken("testnet", "a".repeat(32))).toBe("a".repeat(32));
+    expect(resolveApiToken("local", undefined)).toBeUndefined();
+    expect(() => resolveApiToken("local", "short")).toThrow(/32/);
   });
 });
 

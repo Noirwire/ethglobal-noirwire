@@ -21,12 +21,18 @@ const fail = (status: number, error: string): Reply => ({ status, body: { error 
 
 async function callBridge(method: "GET" | "POST", path: string, body?: unknown): Promise<Reply> {
   const { bridgeUrl } = loadEnv();
+  const token = process.env.BRIDGE_API_TOKEN;
   try {
     const response = await fetch(`${bridgeUrl}${path}`, {
       method,
       cache: "no-store",
       signal: AbortSignal.timeout(BRIDGE_TIMEOUT_MS),
-      ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }),
+      ...(body === undefined
+        ? {}
+        : {
+            body: JSON.stringify(body),
+            headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          }),
     });
     const parsed: unknown = await response.json().catch(() => ({ error: `Bridge answered HTTP ${response.status}` }));
     return { status: response.status, body: parsed };

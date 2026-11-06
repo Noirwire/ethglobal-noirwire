@@ -41,6 +41,8 @@ Every transfer carries `attester`: `circle-iris` when the Iris client signs off,
 - `POST /v1/intents` body is a `TopUpIntent`; 202 with the created transfers, 400 invalid, 422 rejected by policy
 - `GET /events` server-sent `FlowEvent` of kind `transfer`
 
+Every POST requires `Authorization: Bearer <BRIDGE_API_TOKEN>` (constant-time compare, 401 otherwise); GETs stay public. Testnet mode refuses to start without `BRIDGE_API_TOKEN` (at least 32 characters). Local mode allows it unset, in which case POSTs are open and the startup log says so. The web server sends the same value from its own `BRIDGE_API_TOKEN` env; never expose it to the browser.
+
 Intents also arrive from a FlowEvent NDJSON file (`INTENT_FILE`), polled every 5 s; only `kind: "intent"` lines are used.
 
 ## Policy

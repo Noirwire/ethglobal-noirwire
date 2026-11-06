@@ -2,7 +2,7 @@ import { LOCAL_NETWORKS, type TransferRoute } from "@noirwire/shared";
 import { TreasuryExecutor, type ExecutorConfig, type RouteAdapter } from "./executor.ts";
 import { IrisClient, type Attester } from "./iris.ts";
 import { DEFAULT_DEV_DEPOSIT, setupLocalArc } from "./local-arc.ts";
-import { createBridgeServer, DEFAULT_BRIDGE_PORT, IntentFileWatcher, type DevDeposit } from "./server.ts";
+import { createBridgeServer, DEFAULT_BRIDGE_PORT, IntentFileWatcher, resolveApiToken, type DevDeposit } from "./server.ts";
 import { UnavailableDeposits, type SolanaDepositApi } from "./solana-deposit.ts";
 import { wireTestnet } from "./testnet.ts";
 import { TransferStore } from "./transfers.ts";
@@ -22,6 +22,7 @@ function env(name: string): string | undefined {
 const network = env("BRIDGE_NETWORK") ?? "testnet";
 if (network !== "testnet" && network !== "local") throw new Error(`BRIDGE_NETWORK must be testnet or local, got ${network}`);
 
+const apiToken = resolveApiToken(network, env("BRIDGE_API_TOKEN"));
 const store = new TransferStore(env("BRIDGE_JOURNAL") ?? "./data/transfers.ndjson");
 const adapters: Partial<Record<TransferRoute, RouteAdapter>> = {};
 const config: ExecutorConfig = {
@@ -68,8 +69,11 @@ const solanaDeposits =
     : (buildSolanaDeposits?.(executor) ??
       new UnavailableDeposits("testnet", "Solana deposits need SOLANA_KEYPAIR_PATH and HOOK_EXECUTOR on the bridge"));
 const port = Number(env("BRIDGE_PORT") ?? DEFAULT_BRIDGE_PORT);
-const server = createBridgeServer(store, executor, devDeposit, solanaDeposits);
-server.listen(port, () => console.log(`bridge listening on ${port}`));
+const server = createBridgeServer(store, executor, devDeposit, solanaDeposits, apiToken);
+server.listen(port, () => {
+  console.log(`bridge listening on ${port}`);
+  if (!apiToken) console.log("BRIDGE_API_TOKEN is unset: POST routes accept unauthenticated requests (local mode only)");
+});
 
 const intentFile = env("INTENT_FILE");
 const watcher = intentFile ? new IntentFileWatcher(intentFile, executor) : undefined;

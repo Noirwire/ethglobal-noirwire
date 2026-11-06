@@ -74,6 +74,20 @@ describe("deposit route handlers", () => {
     expect(JSON.parse(init.body as string)).toEqual(input);
   });
 
+  it("sends the bridge token as a bearer header only when it is set", async () => {
+    const fetchMock = stubBridge(202, { transfer: {} });
+    const signature = "5".repeat(88);
+    vi.stubEnv("BRIDGE_API_TOKEN", "");
+    await submitted(post({ signature }));
+    expect(((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>).authorization).toBeUndefined();
+    vi.stubEnv("BRIDGE_API_TOKEN", "s".repeat(32));
+    await submitted(post({ signature }));
+    expect(((fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].headers as Record<string, string>).authorization).toBe(
+      `Bearer ${"s".repeat(32)}`,
+    );
+    vi.unstubAllEnvs();
+  });
+
   it("prepare blocks a bridge transaction that does not match the request", async () => {
     stubBridge(200, { transaction: burn({ amount: 1n }) });
     const response = await prepare(post(input));

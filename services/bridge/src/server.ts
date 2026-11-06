@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { flowEvent, topUpIntent, type BridgeTransfer, type FlowEvent } from "@noirwire/shared";
@@ -53,11 +54,33 @@ function depositError(res: ServerResponse, error: unknown): boolean {
   return true;
 }
 
+export const MIN_API_TOKEN_LENGTH = 32;
+
+export function resolveApiToken(network: "testnet" | "local", value: string | undefined): string | undefined {
+  if (value === undefined) {
+    if (network === "testnet") throw new Error("BRIDGE_API_TOKEN is required in testnet mode");
+    return undefined;
+  }
+  if (value.length < MIN_API_TOKEN_LENGTH) throw new Error(`BRIDGE_API_TOKEN must be at least ${MIN_API_TOKEN_LENGTH} characters`);
+  return value;
+}
+
+function digest(value: string): Buffer {
+  return createHash("sha256").update(value).digest();
+}
+
+function authorized(req: IncomingMessage, token: string): boolean {
+  const header = req.headers.authorization ?? "";
+  const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+  return timingSafeEqual(digest(presented), digest(token));
+}
+
 export function createBridgeServer(
   store: TransferStore,
   executor: TreasuryExecutor,
   devDeposit?: DevDeposit,
   solanaDeposits: SolanaDepositApi = NO_SOLANA_DEPOSITS,
+  apiToken?: string,
 ): Server {
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -65,6 +88,9 @@ export function createBridgeServer(
       if (req.method === "OPTIONS") {
         res.writeHead(204, { ...ALLOW_ORIGIN, "access-control-allow-headers": "content-type" });
         return res.end();
+      }
+      if (req.method === "POST" && apiToken && !authorized(req, apiToken)) {
+        return json(res, 401, { error: "unauthorized" });
       }
       if (req.method === "GET" && url.pathname === "/v1/transfers") {
         const state = url.searchParams.get("state");
