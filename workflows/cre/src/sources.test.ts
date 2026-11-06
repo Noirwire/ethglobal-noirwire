@@ -32,6 +32,13 @@ describe("source parsers", () => {
     expect(() => parseTransfers("{}")).toThrow();
   });
 
+  it("keeps the bridge's released flag on a transfer", () => {
+    const [first] = inFlightTransfers(NOW);
+    const parsed = parseTransfers(JSON.stringify([{ ...first, released: true }, first]));
+    expect(parsed[0]?.released).toBe(true);
+    expect(parsed[1]?.released).toBeUndefined();
+  });
+
   it("rejects malformed maker and Hyperliquid bodies", () => {
     expect(() => parseMakerEquity(JSON.stringify({ equityUsdc6: "-1", observedAt: NOW.toISOString() }))).toThrow();
     expect(() => parseHyperliquid(JSON.stringify({ marginSummary: {} }))).toThrow();

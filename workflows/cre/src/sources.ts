@@ -1,6 +1,6 @@
-import { bridgeTransfer, type BridgeTransfer } from "@noirwire/shared";
+import { bridgeTransfer } from "@noirwire/shared";
 import { z } from "zod";
-import { parseDecimalToUnits } from "./nav.ts";
+import { parseDecimalToUnits, type BridgeTransferView } from "./nav.ts";
 
 const unsigned = z.string().regex(/^\d+$/);
 const isoTime = z.iso.datetime();
@@ -48,8 +48,10 @@ export function parseHyperliquid(text: string): HyperliquidAccount {
   };
 }
 
-export function parseTransfers(text: string): BridgeTransfer[] {
+const transferView = bridgeTransfer.extend({ released: z.boolean().optional() });
+
+export function parseTransfers(text: string): BridgeTransferView[] {
   const raw: unknown = JSON.parse(text);
   if (!Array.isArray(raw)) throw new Error("transfers response is not an array");
-  return raw.map((item) => bridgeTransfer.parse(item));
+  return raw.map((item) => transferView.parse(item));
 }

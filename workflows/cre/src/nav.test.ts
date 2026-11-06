@@ -10,6 +10,7 @@ import {
   sharePriceE18,
   sourcesHash,
   valueWbtcInUsdc6,
+  type BridgeTransferView,
   type MarginBands,
   type Readings,
 } from "./nav.ts";
@@ -26,7 +27,7 @@ const BANDS: MarginBands = {
   maxIntentUsdc6: "5000000000",
 };
 
-function transfer(overrides: Partial<BridgeTransfer> & { transferId: string }): BridgeTransfer {
+function transfer(overrides: Partial<BridgeTransferView> & { transferId: string }): BridgeTransferView {
   return {
     route: "arc-solana",
     sourceDomain: 26,
@@ -83,6 +84,26 @@ describe("in-transit selection", () => {
 
   it("ignores a transfer that has not burned yet, because the source leg still holds it", () => {
     expect(selectInTransit([transfer({ transferId: "r", state: "requested" })])).toEqual([]);
+  });
+
+  it("counts a requested transfer once the bridge says its USDC has left the vault", () => {
+    const items = [
+      transfer({ transferId: "held", state: "requested", released: true }),
+      transfer({ transferId: "waiting", state: "requested", released: false }),
+    ];
+    expect(selectInTransit(items).map((t) => t.transferId)).toEqual(["held"]);
+  });
+
+  it("does not count a stuck transfer whose release never happened", () => {
+    const items = [
+      transfer({ transferId: "never", state: "stuck", released: false }),
+      transfer({ transferId: "moved", state: "stuck", released: true }),
+    ];
+    expect(selectInTransit(items).map((t) => t.transferId)).toEqual(["moved"]);
+  });
+
+  it("drops a released transfer once it settles", () => {
+    expect(selectInTransit([transfer({ transferId: "done", state: "credited", released: true })])).toEqual([]);
   });
 
   it("values a transfer at netMinted when known, else the gross amount", () => {

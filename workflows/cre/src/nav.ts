@@ -14,6 +14,8 @@ import { encodeAbiParameters, keccak256, parseAbiParameters, toHex } from "viem"
 
 type IntentReason = TopUpIntent["reason"];
 
+export type BridgeTransferView = BridgeTransfer & { released?: boolean };
+
 export interface MarginBands {
   lowBps: number;
   urgentBps: number;
@@ -27,7 +29,7 @@ export interface Readings {
   maker: { account: string; equityUsdc6: bigint; observedAt: Date };
   hyperliquid: { account: string; accountValueUsdc6: bigint; observedAt: Date };
   aqua: { account: string; usdc6: bigint; wbtcE8: bigint; btcUsdE8: bigint; observedAt: Date };
-  transfers: { account: string; items: BridgeTransfer[]; observedAt: Date };
+  transfers: { account: string; items: BridgeTransferView[]; observedAt: Date };
   shareSupply18: bigint;
 }
 
@@ -52,18 +54,24 @@ export function valueWbtcInUsdc6(wbtcE8: bigint, btcUsdE8: bigint): bigint {
   return (wbtcE8 * btcUsdE8) / WBTC_E8_TIMES_USD_E8_TO_USDC6;
 }
 
-function transferValue(transfer: BridgeTransfer): bigint {
+function transferValue(transfer: BridgeTransferView): bigint {
   return BigInt(transfer.netMinted ?? transfer.grossAmount);
 }
 
-export function selectInTransit(transfers: BridgeTransfer[]): BridgeTransfer[] {
-  const latest = new Map<string, BridgeTransfer>();
+function isInTransit(transfer: BridgeTransferView): boolean {
+  if (SETTLED_TRANSFER_STATES.has(transfer.state)) return false;
+  if (transfer.released !== undefined) return transfer.released;
+  return transfer.state !== "requested";
+}
+
+export function selectInTransit(transfers: BridgeTransferView[]): BridgeTransferView[] {
+  const latest = new Map<string, BridgeTransferView>();
   for (const transfer of transfers) {
     const seen = latest.get(transfer.transferId);
     if (!seen || Date.parse(transfer.updatedAt) >= Date.parse(seen.updatedAt)) latest.set(transfer.transferId, transfer);
   }
   return [...latest.values()]
-    .filter((transfer) => transfer.state !== "requested" && !SETTLED_TRANSFER_STATES.has(transfer.state))
+    .filter(isInTransit)
     .sort((a, b) => (a.transferId < b.transferId ? -1 : a.transferId > b.transferId ? 1 : 0));
 }
 
@@ -80,7 +88,7 @@ function assertReadableTimes(readings: Readings): void {
   }
 }
 
-function buildSources(readings: Readings): { sources: NavSource[]; inTransit: BridgeTransfer[] } {
+function buildSources(readings: Readings): { sources: NavSource[]; inTransit: BridgeTransferView[] } {
   assertReadableTimes(readings);
   const inTransit = selectInTransit(readings.transfers.items);
   const inTransitTotal = inTransit.reduce((sum, transfer) => sum + transferValue(transfer), 0n);
