@@ -33,7 +33,7 @@ contract NavReceiver is IReceiver, Ownable2Step {
     uint8 public constant KIND_NAV = 1;
     uint8 public constant KIND_TOP_UP = 2;
     uint8 public constant REPORT_VERSION = 1;
-    uint8 public constant MAX_ROUTE = 3;
+    uint8 public constant MAX_ROUTE = 5;
     uint8 public constant MAX_REASON = 3;
     uint256 public constant METADATA_MIN_LENGTH = 62;
     uint256 internal constant METADATA_NAME_OFFSET = 32;

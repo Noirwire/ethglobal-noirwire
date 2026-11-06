@@ -236,6 +236,8 @@ const ROUTE_CODE: Record<TransferRoute, number> = {
   "hypercore-arc": 1,
   "arc-solana": 2,
   "solana-arc": 3,
+  "solana-hypercore": 4,
+  "hypercore-solana": 5,
 };
 
 const REASON_CODE: Record<IntentReason, number> = {

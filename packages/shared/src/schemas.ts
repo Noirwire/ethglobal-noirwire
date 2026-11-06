@@ -70,7 +70,14 @@ export const exposure = z.object({
 });
 export type Exposure = z.infer<typeof exposure>;
 
-export const transferRoute = z.enum(["arc-solana", "solana-arc", "arc-hypercore", "hypercore-arc"]);
+export const transferRoute = z.enum([
+  "arc-solana",
+  "solana-arc",
+  "arc-hypercore",
+  "hypercore-arc",
+  "solana-hypercore",
+  "hypercore-solana",
+]);
 export type TransferRoute = z.infer<typeof transferRoute>;
 
 export const transferState = z.enum([

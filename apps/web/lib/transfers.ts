@@ -19,6 +19,8 @@ export const ROUTE_CHAINS: Record<TransferRoute, { from: Chain; to: Chain }> = {
   "solana-arc": { from: "solana", to: "arc" },
   "arc-hypercore": { from: "arc", to: "hypercore" },
   "hypercore-arc": { from: "hypercore", to: "arc" },
+  "solana-hypercore": { from: "solana", to: "hypercore" },
+  "hypercore-solana": { from: "hypercore", to: "solana" },
 };
 
 const STATE_STAGE: Record<TransferState, number> = {
@@ -119,6 +121,8 @@ const DIRECTION: Record<TransferRoute, string> = {
   "hypercore-arc": "Hyperliquid surplus back to vault",
   "arc-solana": "Arc to Solana",
   "solana-arc": "Solana to Arc",
+  "solana-hypercore": "Solana to Hyperliquid",
+  "hypercore-solana": "Hyperliquid to Solana",
 };
 
 const WHY: Record<TransferRoute, string | null> = {
@@ -126,6 +130,8 @@ const WHY: Record<TransferRoute, string | null> = {
   "hypercore-arc": "surplus",
   "arc-solana": null,
   "solana-arc": null,
+  "solana-hypercore": "collateral rebalance",
+  "hypercore-solana": "collateral rebalance",
 };
 
 const REFUSED_RELEASE = /vault refused the release/i;

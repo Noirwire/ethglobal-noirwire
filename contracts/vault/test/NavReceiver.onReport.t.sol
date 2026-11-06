@@ -98,10 +98,22 @@ contract NavReceiverOnReportTest is Base {
     }
 
     function testFuzz_RevertWhen_TheTopUpFieldsAreInvalid(uint8 route, uint8 reason, uint256 amount) external {
-        bool invalid = route > 3 || reason > 3 || amount == 0;
+        bool invalid = route > 5 || reason > 3 || amount == 0;
         vm.assume(invalid);
         vm.expectRevert(NavReceiver.NavReceiver__InvalidIntent.selector);
         _deliver(_topUp(bytes32(uint256(1)), 1, route, reason, amount));
+    }
+
+    function test_WhenTheRouteIsTheHighestKnown_RecordsIt() external {
+        assertEq(receiver.MAX_ROUTE(), 5);
+        _deliver(_topUp(bytes32(uint256(7)), 1, 5, 0, 1e6));
+        (,,, uint8 storedRoute,,) = receiver.topUpIntents(bytes32(uint256(7)));
+        assertEq(storedRoute, 5);
+    }
+
+    function test_RevertWhen_TheRouteIsPastTheHighestKnown() external {
+        vm.expectRevert(NavReceiver.NavReceiver__InvalidIntent.selector);
+        _deliver(_topUp(bytes32(uint256(8)), 1, 6, 0, 1e6));
     }
 
     function testFuzz_RevertWhen_TheIntentIdWasAlreadyRecorded(bytes32 intentId, uint256 amount) external {
@@ -114,7 +126,7 @@ contract NavReceiverOnReportTest is Base {
     function testFuzz_WhenTheIntentIsNewAndValid_RecordsIt(bytes32 intentId, uint8 route, uint8 reason, uint256 amount)
         external
     {
-        route = uint8(bound(route, 0, 3));
+        route = uint8(bound(route, 0, 5));
         reason = uint8(bound(reason, 0, 3));
         amount = bound(amount, 1, type(uint128).max);
 
