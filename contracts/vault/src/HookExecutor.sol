@@ -39,6 +39,7 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
     uint256 internal constant BODY_BURN_TOKEN = BODY + 4;
     uint256 internal constant BODY_MINT_RECIPIENT = BODY + 36;
     uint256 internal constant BODY_AMOUNT = BODY + 68;
+    uint256 internal constant BODY_MESSAGE_SENDER = BODY + 100;
     uint256 internal constant BODY_FEE_EXECUTED = BODY + 164;
     uint256 internal constant BODY_HOOK_DATA = BODY + 228;
     uint256 internal constant WORD_SIZE = 32;
@@ -133,7 +134,7 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
         uint256 received = USDC.balanceOf(address(this)) - balanceBefore;
         if (received != expectedNet) revert HookExecutor__MintMismatch(expectedNet, received);
 
-        _dispatch(nonce, message[BODY_HOOK_DATA:], received);
+        _dispatch(nonce, message[BODY_HOOK_DATA:], _word(message, BODY_MESSAGE_SENDER), received);
     }
 
     function claim() external nonReentrant {
@@ -167,8 +168,8 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
                     INTERNAL STATE-CHANGING FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function _dispatch(bytes32 nonce, bytes calldata hookData, uint256 amount) internal {
-        (bool valid, address beneficiary, bytes32 depositor, uint64 deadline) = _decodeHook(hookData);
+    function _dispatch(bytes32 nonce, bytes calldata hookData, bytes32 burnSender, uint256 amount) internal {
+        (bool valid, address beneficiary, bytes32 depositor, uint64 deadline) = _decodeHook(hookData, burnSender);
         if (!valid) {
             quarantined[nonce] = amount;
             emit DepositQuarantined(nonce, amount);
@@ -211,7 +212,7 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
         if (_word(message, BODY_MINT_RECIPIENT) != self) revert HookExecutor__WrongMintRecipient();
     }
 
-    function _decodeHook(bytes calldata hookData)
+    function _decodeHook(bytes calldata hookData, bytes32 burnSender)
         internal
         pure
         returns (bool valid, address beneficiary, bytes32 depositor, uint64 deadline)
@@ -222,7 +223,7 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
         uint256 deadlineWord = _uint(hookData, HOOK_DEADLINE);
         if (
             versionWord != HOOK_VERSION || beneficiaryWord == 0 || beneficiaryWord > type(uint160).max
-                || deadlineWord > type(uint64).max
+                || deadlineWord > type(uint64).max || _word(hookData, HOOK_DEPOSITOR) != burnSender
         ) {
             return (false, address(0), 0, 0);
         }

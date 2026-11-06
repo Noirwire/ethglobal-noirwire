@@ -174,6 +174,33 @@ contract HookExecutorRelayTest is Base {
         assertEq(usdc.balanceOf(address(executor)), amount);
     }
 
+    function testFuzz_GivenADepositorThatIsNotTheBurnMessageSender_QuarantinesTheUsdc(
+        uint256 amount,
+        bytes32 claimedDepositor,
+        bytes32 nonce
+    ) external {
+        vm.assume(nonce != bytes32(0));
+        vm.assume(claimedDepositor != DEPOSITOR);
+        amount = bound(amount, 1, MAX_DEPOSIT);
+        bytes memory hookData = abi.encode(uint8(1), alice, claimedDepositor, uint64(block.timestamp + 1));
+        _relay(_default(amount, hookData, nonce));
+
+        assertEq(executor.quarantined(nonce), amount);
+        assertEq(_pendingDeposits(), 0);
+        assertEq(executor.claimable(alice), 0);
+    }
+
+    function testFuzz_GivenADepositorThatIsTheBurnMessageSender_ForwardsTheDeposit(uint256 amount, bytes32 nonce)
+        external
+    {
+        vm.assume(nonce != bytes32(0));
+        amount = bound(amount, 1, MAX_DEPOSIT);
+        _relay(_default(amount, _hook(alice, uint64(block.timestamp + 1)), nonce));
+
+        assertEq(executor.quarantined(nonce), 0);
+        assertEq(_pendingDeposits(), amount);
+    }
+
     function testFuzz_GivenAZeroBeneficiaryOrWrongHookVersion_QuarantinesTheUsdc(uint8 version, bytes32 nonce)
         external
     {

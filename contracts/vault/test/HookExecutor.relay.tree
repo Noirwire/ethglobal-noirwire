@@ -28,5 +28,9 @@ HookExecutorRelayTest
     │   │   └── it should hold the USDC as a claim and clear the allowance
     │   └── given the vault accepts the deposit
     │       └── it should record a vault deposit request for the beneficiary
+    ├── given the hook depositor is the burn message sender
+    │   └── it should forward the deposit
+    ├── given the hook depositor differs from the burn message sender
+    │   └── it should quarantine the USDC under the nonce
     └── given the hook data is malformed
         └── it should quarantine the USDC under the nonce
