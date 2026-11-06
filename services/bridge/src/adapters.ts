@@ -4,7 +4,7 @@ import { bytesToHex, type Hex } from "viem";
 import type { DeliverResult, RouteAdapter } from "./executor.ts";
 import type { EvmDriver } from "./evm.ts";
 import { encodeForwardHookData, encodeVaultHookData, HYPERCORE_DEX } from "./hooks.ts";
-import type { HyperCoreReader } from "./hyperliquid.ts";
+import { matchesCredit, type HyperCoreLedger, type HyperCoreReader, type LedgerMatchConfig } from "./hyperliquid.ts";
 import type { Attester } from "./iris.ts";
 import { addressToBytes32, decodeBurnBody, decodeMessage, FINALITY_FAST, ZERO_BYTES32 } from "./message.ts";
 import type { SolanaDriver } from "./solana.ts";
@@ -17,8 +17,15 @@ export class ArcHypercoreAdapter implements RouteAdapter {
       forwarder: Hex;
       recipient: Hex;
       reader: HyperCoreReader;
+      ledger: HyperCoreLedger;
+      match: LedgerMatchConfig;
     },
   ) {}
+
+  async creditedInLedger(_transfer: BridgeTransfer, expected: bigint, since: number): Promise<boolean> {
+    const entries = await this.options.ledger.entries(this.options.recipient, since);
+    return entries.some((entry) => matchesCredit(entry, this.options.match, this.options.recipient, expected, since));
+  }
 
   async burn(transfer: BridgeTransfer): Promise<{ burnTx: string }> {
     const forwarder = addressToBytes32(this.options.forwarder);
@@ -91,6 +98,12 @@ export class SolanaArcAdapter implements RouteAdapter {
     private readonly evm: EvmDriver,
     private readonly options: { hookExecutor: Hex; beneficiary: Hex; solanaDepositor: Hex; deadlineSeconds: number },
   ) {}
+
+  async preflight(transfer: BridgeTransfer): Promise<string | undefined> {
+    const balance = await this.solana.usdcBalance();
+    const amount = BigInt(transfer.grossAmount);
+    return balance < amount ? `the bridge Solana account holds ${balance} base units, less than the ${amount} to burn` : undefined;
+  }
 
   async burn(transfer: BridgeTransfer): Promise<{ burnTx: string }> {
     const executor = addressToBytes32(this.options.hookExecutor);
