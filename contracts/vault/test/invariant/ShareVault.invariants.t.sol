@@ -30,6 +30,27 @@ contract ShareVaultInvariantsTest is StdInvariant, Base {
         assertLe(vault.ledgerAssets(), usdc.balanceOf(address(vault)));
     }
 
+    /// @dev After every actor is advanced to the open epoch, what they can claim fits the reserve
+    /// and what they still carry fits the escrowed redemption shares of the open epoch.
+    function invariant_AdvancedClaimsFitTheReserveAndCarriesFitTheEscrow() external {
+        uint256 claims;
+        uint256 carried;
+        for (uint256 i; i < handler.actorCount(); ++i) {
+            address actor = handler.actors(i);
+            vault.advanceRedeem(actor, type(uint256).max);
+            claims += vault.claimableAssets(actor);
+            (, uint192 remaining) = vault.redeemRequests(actor);
+            carried += remaining;
+        }
+        assertLe(claims, vault.reservedAssets());
+        assertLe(carried, vault.epochRedeemShares(vault.currentEpoch()));
+    }
+
+    /// @dev A claim pays out everything it was owed or keeps the unpaid part claimable.
+    function invariant_NoClaimIsEverLost() external view {
+        assertEq(handler.ghostLostClaims(), 0);
+    }
+
     /// @dev The share supply is exactly what settlements minted minus what they burned.
     function invariant_SupplyEqualsMintedMinusBurned() external view {
         assertEq(vault.totalSupply(), handler.ghostMinted() - handler.ghostBurned());

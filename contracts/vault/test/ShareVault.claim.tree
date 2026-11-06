@@ -10,6 +10,12 @@ ShareVaultClaimTest
 ├── given claimAssets
 │   ├── given the user has nothing to claim
 │   │   └── it should revert
+│   ├── given nothing is reserved for the claim
+│   │   └── it should revert and keep the claim
+│   ├── given the reserve is smaller than the claim
+│   │   └── it should pay the reserve and keep the remainder claimable
+│   ├── given several redeemers and a partial fill
+│   │   └── it should keep claims within the reserve and carries within the escrow
 │   └── given the user has a settled redemption
 │       └── it should pay USDC out of the reserved assets and shrink the reserve
 └── given advanceRedeem

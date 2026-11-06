@@ -83,6 +83,7 @@ abstract contract Base is Test {
         usdc.approve(address(vault), type(uint256).max);
         vm.prank(bob);
         usdc.approve(address(vault), type(uint256).max);
+        vm.warp(block.timestamp + 1);
     }
 
     function _navReport(uint64 closeId, uint64 observedAt, uint256 assets, uint256 liabilities)
@@ -104,10 +105,12 @@ abstract contract Base is Test {
 
     function _close(uint256 venueAssets, uint256 liabilities) internal {
         uint64 closeId = vault.currentEpoch();
+        vm.warp(block.timestamp + 1);
         _deliver(_navReport(closeId, uint64(block.timestamp), vault.navCash() + venueAssets, liabilities));
     }
 
     function _closeAt(uint256 totalAssets) internal {
+        vm.warp(block.timestamp + 1);
         _deliver(_navReport(vault.currentEpoch(), uint64(block.timestamp), totalAssets, 0));
     }
 

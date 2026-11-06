@@ -41,14 +41,97 @@ contract ShareVaultSettleEpochTest is Base {
 
     function testFuzz_ObservedAtExactlyAtTheMaxAgeIsAccepted(uint64 age) external {
         age = uint64(bound(age, 0, vault.maxReportAge()));
+        vm.warp(block.timestamp + vault.maxReportAge());
         _deliver(_navReport(1, uint64(block.timestamp) - age, 0, 0));
         assertEq(vault.currentEpoch(), 2);
+    }
+
+    function testFuzz_RevertWhen_ObservedAtIsNotAfterTheLastSettlement(uint64 gap, uint64 back) external {
+        gap = uint64(bound(gap, 0, 30 minutes));
+        back = uint64(bound(back, 0, 20 minutes));
+        vm.warp(block.timestamp + 1);
+        _close(0, 0);
+        uint64 settledAt = vault.lastSettledAt();
+        vm.warp(block.timestamp + gap);
+
+        bytes memory report = _navReport(2, settledAt - back, 0, 0);
+        vm.expectRevert(ShareVault.ShareVault__ReportNotNewer.selector);
+        _deliver(report);
+    }
+
+    function test_RevertWhen_TheFirstReportIsNotAfterTheDeployment() external {
+        vm.warp(block.timestamp + 1);
+        bytes memory report = _navReport(1, vault.lastSettledAt(), 0, 0);
+        vm.expectRevert(ShareVault.ShareVault__ReportNotNewer.selector);
+        _deliver(report);
+    }
+
+    function testFuzz_ObservedAtJustAfterTheLastSettlementIsAccepted(uint64 gap) external {
+        gap = uint64(bound(gap, 1, 30 minutes));
+        vm.warp(block.timestamp + 1);
+        _close(0, 0);
+        uint64 settledAt = vault.lastSettledAt();
+        vm.warp(block.timestamp + gap);
+
+        _deliver(_navReport(2, settledAt + 1, 0, 0));
+        assertEq(vault.currentEpoch(), 3);
+    }
+
+    function testFuzz_GivenAcknowledgedDeviation_RequestsStayPausedUntilTheNextSettlement(uint256 deposit) external {
+        deposit = bound(deposit, 1000e6, MAX_DEPOSIT);
+        _depositAndClaim(alice, deposit);
+        _closeAt(deposit / 2);
+        assertTrue(vault.requestsPaused());
+
+        vault.acknowledgeDeviation();
+        assertTrue(vault.deviationAcknowledged());
+        assertTrue(vault.requestsPaused());
+        vm.prank(bob);
+        vm.expectRevert(ShareVault.ShareVault__RequestsPaused.selector);
+        vault.requestDeposit(deposit, bob);
+
+        _closeAt(deposit / 2);
+        assertFalse(vault.requestsPaused());
+        _deposit(bob, deposit);
+    }
+
+    function testFuzz_GivenResidualAssetsAtZeroSupply_TheNextDepositorDoesNotReceiveThem(
+        uint256 deposit,
+        uint256 next,
+        uint256 residual
+    ) external {
+        vault.setLockupPeriod(0);
+        vault.setMaxRedeemBps(10_000);
+        deposit = bound(deposit, 1000e6, MAX_DEPOSIT);
+        next = bound(next, 1000e6, MAX_DEPOSIT);
+        residual = bound(residual, 1e6, next / 20);
+        _depositAndClaim(alice, deposit);
+        uint256 aliceShares = vault.balanceOf(alice);
+        vm.prank(alice);
+        vault.requestRedeem(aliceShares, alice);
+        _close(0, 0);
+        vault.claimAssets(alice);
+        assertEq(vault.totalSupply(), 0);
+
+        usdc.mint(address(vault), residual);
+        vm.prank(operator);
+        vault.acknowledgeReturn(residual);
+        _deposit(bob, next);
+        _close(0, 0);
+        vault.claimShares(bob);
+        _close(0, 0);
+
+        assertEq(vault.balanceOf(bob), next * 1e12);
+        assertEq(vault.balanceOf(feeRecipient), residual * 1e12);
+        assertEq(_valueOf(bob), next);
+        assertEq(_valueOf(feeRecipient), residual);
     }
 
     function testFuzz_RevertWhen_TheLiabilitiesConsumeAllAssets(uint256 assets, uint256 extra) external {
         _depositAndClaim(alice, 1000e6);
         assets = bound(assets, 0, 1e15);
         extra = bound(extra, 0, 1e15);
+        vm.warp(block.timestamp + 1);
         bytes memory report = _navReport(2, uint64(block.timestamp), assets, assets + extra);
         vm.expectRevert(ShareVault.ShareVault__SharePriceZero.selector);
         _deliver(report);
@@ -79,7 +162,7 @@ contract ShareVaultSettleEpochTest is Base {
         _closeAt(navAfter);
 
         vault.acknowledgeDeviation();
-        assertFalse(vault.requestsPaused());
+        assertTrue(vault.requestsPaused());
         _closeAt(navAfter);
 
         assertEq(vault.currentEpoch(), epoch + 1);

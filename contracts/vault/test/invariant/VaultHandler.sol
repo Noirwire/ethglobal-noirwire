@@ -23,6 +23,7 @@ contract VaultHandler is Test {
     uint256 public ghostBurned;
     uint256 public ghostVenue;
     uint256 public settledEpochs;
+    uint256 public ghostLostClaims;
 
     constructor(
         ShareVault vault_,
@@ -86,7 +87,17 @@ contract VaultHandler is Test {
     }
 
     function claimAssets(uint256 actorSeed) external {
-        try VAULT.claimAssets(_actor(actorSeed)) {} catch {}
+        address actor = _actor(actorSeed);
+        (, uint256 owedBefore) = VAULT.pendingClaims(actor);
+        uint256 balanceBefore = USDC.balanceOf(actor);
+        try VAULT.claimAssets(actor) {
+            uint256 paid = USDC.balanceOf(actor) - balanceBefore;
+            if (paid + VAULT.claimableAssets(actor) != owedBefore) ++ghostLostClaims;
+        } catch {}
+    }
+
+    function advanceRedeem(uint256 actorSeed, uint256 maxEpochs) external {
+        try VAULT.advanceRedeem(_actor(actorSeed), bound(maxEpochs, 1, 4)) {} catch {}
     }
 
     function moveToVenue(uint256 amount) external {

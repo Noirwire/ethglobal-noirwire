@@ -18,10 +18,10 @@ Encodings (CRE report, hook data, units) follow `docs/interfaces.md`.
 
 1. Users call `requestDeposit(assets, receiver)` or `requestRedeem(shares, receiver)`. USDC or shares are escrowed in the vault for the current epoch. `cancelDeposit` and `cancelRedeem` work only while the epoch is open.
 2. CRE computes the NAV off-chain and writes a report. `NavReceiver` calls `settleEpoch(closeId, totalAssets, totalLiabilities, observedAt)`.
-3. The vault checks: `closeId` equals the current epoch exactly, `observedAt` is not in the future and not older than `maxReportAge`, and the new price is within `maxPriceMoveBps` of the last price. A larger move pauses new requests and emits `DeviationHalt` until the owner calls `acknowledgeDeviation`; a fresh report for the same epoch then settles.
+3. The vault checks: `closeId` equals the current epoch exactly, `observedAt` is not in the future and not older than `maxReportAge`, `observedAt` is strictly after the previous settlement (the deployment time for the first one), and the new price is within `maxPriceMoveBps` of the last price. A larger move pauses new requests and emits `DeviationHalt` until the owner calls `acknowledgeDeviation`; a fresh report for the same epoch then settles. Acknowledging does not reopen requests: they stay paused until that settlement succeeds.
 4. Price: `sharePriceE18 = netAssets6 * 1e12 * 1e18 / shareSupply`, opening price `1e18` (1 share = 1 USDC). Deposits mint shares rounding down, redemptions pay assets rounding down.
 5. A performance fee (`performanceFeeBps`, default 2000) is minted as shares to `feeRecipient` on the part of the price above the high-water mark, and never on a loss epoch.
-6. Redemptions paid per epoch are capped at `maxRedeemBps` of net assets and by USDC actually held. The filled fraction is the same for every request; the rest rolls into the next epoch.
+6. Redemptions paid per epoch are capped at `maxRedeemBps` of net assets and by USDC actually held. The filled fraction is the same for every request; the rest rolls into the next epoch. Per-request splits round down, so the sum of all fills never exceeds the reserved assets and the sum of all carries never exceeds the escrowed shares; a claim larger than the reserve pays the reserve and stays claimable for the rest. When the share supply is zero, any net assets are minted to `feeRecipient` at the opening price so they are not gifted to the next depositor.
 7. Users call `claimShares(user)` and `claimAssets(user)`. Claims are computed lazily from per-epoch totals, so settlement never loops over users.
 8. If no epoch settles within `maxEpochGap`, `requestDeposit` reverts (stale halt). Redemption requests stay open.
 
@@ -36,7 +36,7 @@ Lockup: shares claimed from an epoch cannot be redeemed until `lockupPeriod` aft
 - The NAV input for the Solana maker account, the Hyperliquid hedge account, Aqua inventory and in-transit bridge transfers is operator supplied. CRE aggregates it and signs a report; nothing on Arc can verify those legs. Holders trust the operator and the CRE workflow for that part of the NAV. The Arc cash leg comes from `navCash()` and is onchain.
 - The owner (admin) sets parameters, the allowlist, the operator and the NAV receiver, and can acknowledge a price deviation. Use a multisig on any real deployment. On testnet the admin may be an EOA.
 - The operator can move idle USDC to allowlisted destinations within the caps.
-- Hook data that cannot be decoded is quarantined for the owner to release; reverting would leave the attested message undeliverable forever.
+- Hook data that cannot be decoded, or whose `solanaDepositor` differs from the attested burn message sender, is quarantined for the owner to release; reverting would leave the attested message undeliverable forever.
 
 ## Test
 

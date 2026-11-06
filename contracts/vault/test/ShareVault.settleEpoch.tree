@@ -7,18 +7,25 @@ ShareVaultSettleEpochTest
 │   └── it should revert
 ├── when the report is older than the max report age
 │   └── it should revert
+├── when the report is not newer than the last settlement
+│   └── it should revert
+├── when the report is newer than the last settlement
+│   └── it should be accepted
 ├── when the liabilities consume all assets
 │   └── it should revert
 ├── given the price moves beyond the deviation bound
 │   ├── given the deviation was not acknowledged
 │   │   └── it should pause requests and keep the epoch open
 │   ├── given the deviation was acknowledged
+│   │   ├── it should keep requests paused until the next settlement
 │   │   └── it should settle and clear the acknowledgement
 │   └── given a later report is back inside the bound
 │       └── it should settle and unpause
 └── given the price is inside the deviation bound
     ├── given the share supply is zero
-    │   └── it should price at the opening price
+    │   ├── it should price at the opening price
+    │   └── given assets remain after the last redemption
+    │       └── it should mint them to the fee recipient so the next depositor pays a fair price
     ├── given a deposit is pending after a loss
     │   └── it should not let the late depositor capture the loss
     ├── given a deposit is pending after a gain

@@ -140,6 +140,7 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
     error ShareVault__WrongCloseId(uint64 expected, uint64 given);
     error ShareVault__ReportTooOld();
     error ShareVault__ReportFromFuture();
+    error ShareVault__ReportNotNewer();
     error ShareVault__SharePriceZero();
     error ShareVault__LockupActive(uint256 unlocksAt);
     error ShareVault__EpochClosed();
@@ -249,6 +250,7 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
         if (closeId != epoch) revert ShareVault__WrongCloseId(epoch, closeId);
         if (observedAt > block.timestamp) revert ShareVault__ReportFromFuture();
         if (block.timestamp - observedAt > maxReportAge) revert ShareVault__ReportTooOld();
+        if (observedAt <= lastSettledAt) revert ShareVault__ReportNotNewer();
 
         uint256 supply = totalSupply();
         uint256 netAssets = _floorSub(totalAssets, totalLiabilities);
@@ -287,7 +289,6 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
 
     function acknowledgeDeviation() external onlyOwner {
         deviationAcknowledged = true;
-        requestsPaused = false;
         emit DeviationAcknowledged(currentEpoch);
     }
 
@@ -302,11 +303,11 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
 
     function claimAssets(address user) external nonReentrant {
         _advanceRedeem(user, ALL_EPOCHS);
-        uint256 assets = claimableAssets[user];
-        if (assets == 0) revert ShareVault__ZeroAmount();
+        uint256 owed = claimableAssets[user];
         uint256 reserved = reservedAssets;
-        if (assets > reserved) assets = reserved;
-        claimableAssets[user] = 0;
+        uint256 assets = owed > reserved ? reserved : owed;
+        if (assets == 0) revert ShareVault__ZeroAmount();
+        claimableAssets[user] = owed - assets;
         reservedAssets = reserved - assets;
         ledgerAssets -= assets;
         USDC.safeTransfer(user, assets);
@@ -453,9 +454,9 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
         uint256 remaining = redeem.shares;
         while (remaining > 0 && epoch < epochNow) {
             Settlement memory s = settlements[epoch];
-            uint256 filled = remaining * s.redeemFilledShares / s.redeemShares;
+            (uint256 filled, uint256 carried) = _splitRemaining(remaining, s);
             assets += _assetsFor(filled, s.price);
-            remaining -= filled;
+            remaining = carried;
             ++epoch;
         }
     }
@@ -483,9 +484,9 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
         uint256 accrued;
         while (remaining > 0 && request.epoch < epochNow && steps < maxEpochs) {
             Settlement memory s = settlements[request.epoch];
-            uint256 filled = remaining * s.redeemFilledShares / s.redeemShares;
+            (uint256 filled, uint256 carried) = _splitRemaining(remaining, s);
             accrued += _assetsFor(filled, s.price);
-            remaining -= filled;
+            remaining = carried;
             ++request.epoch;
             ++steps;
         }
@@ -516,7 +517,9 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
         view
         returns (uint256 price, uint256 feeShares)
     {
-        if (supply == 0) return (INITIAL_PRICE, 0);
+        if (supply == 0) {
+            return (INITIAL_PRICE, _sharesFor(netAssets, INITIAL_PRICE));
+        }
         uint256 rawPrice = _priceOf(netAssets, supply);
         uint256 hwm = highWaterMark;
         uint256 feeBps = performanceFeeBps;
@@ -544,6 +547,18 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
         if (cash < cap) cap = cash;
         if (wanted <= cap) return redeemShares;
         filled = redeemShares * cap / wanted;
+    }
+
+    /// @dev Both parts round down, so across all requesters the filled parts sum to at most the
+    /// settled fill and the carried parts to at most the aggregate carry. The leftover is under one
+    /// share unit per requester and stays in the vault.
+    function _splitRemaining(uint256 remaining, Settlement memory s)
+        internal
+        pure
+        returns (uint256 filled, uint256 carried)
+    {
+        filled = remaining * s.redeemFilledShares / s.redeemShares;
+        carried = remaining * (s.redeemShares - s.redeemFilledShares) / s.redeemShares;
     }
 
     function _floorSub(uint256 a, uint256 b) internal pure returns (uint256 difference) {
