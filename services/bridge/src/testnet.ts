@@ -14,7 +14,7 @@ import { EvmDriver } from "./evm.ts";
 import type { ExecutorConfig, RouteAdapter, TreasuryExecutor } from "./executor.ts";
 import { VAULT_HOOK_DEADLINE_SECONDS } from "./hooks.ts";
 import { DEFAULT_LEDGER_MATCH, HyperliquidInfoReader, HyperliquidLedgerReader, type LedgerMatchConfig } from "./hyperliquid.ts";
-import { DurableCursor, OnchainIntentWatcher, ViemIntentLogReader, watcherSettings } from "./intent-watcher.ts";
+import { intentWatcherWiring, type IntentWatcherWiring } from "./intent-watcher.ts";
 import { IRIS_SANDBOX_URL, type IrisClient } from "./iris.ts";
 import { VaultTreasury, ViemVaultChain } from "./vault.ts";
 import { SolanaDriver } from "./solana.ts";
@@ -44,12 +44,12 @@ export function wireTestnet(
   config: ExecutorConfig,
 ): {
   solanaDeposits?: (executor: TreasuryExecutor) => SolanaDepositApi;
-  intentWatcher?: { build: (executor: TreasuryExecutor) => OnchainIntentWatcher; pollMs: number };
+  intentWatcher?: IntentWatcherWiring;
   rebalance?: RebalanceWiring;
 } {
   let rebalance: RebalanceWiring | undefined;
   let solanaDeposits: ((executor: TreasuryExecutor) => SolanaDepositApi) | undefined;
-  let intentWatcher: { build: (executor: TreasuryExecutor) => OnchainIntentWatcher; pollMs: number } | undefined;
+  let intentWatcher: IntentWatcherWiring | undefined;
   const operatorKey = env("ARC_OPERATOR_KEY");
   if (!operatorKey) throw new Error("ARC_OPERATOR_KEY is required");
 
@@ -80,17 +80,7 @@ export function wireTestnet(
     config.vault = new VaultTreasury(shareVault, arcOperator.address, new ViemVaultChain(evm.publicClient, evm.walletClient, shareVault));
   }
   if (navReceiver) {
-    const settings = watcherSettings(env);
-    intentWatcher = {
-      pollMs: settings.pollMs,
-      build: (executor) =>
-        new OnchainIntentWatcher(
-          new ViemIntentLogReader(evm.publicClient, navReceiver),
-          new DurableCursor(settings.cursorFile),
-          executor,
-          settings.options,
-        ),
-    };
+    intentWatcher = intentWatcherWiring(env, evm.publicClient, navReceiver);
   }
 
   const accountKey = env("HYPERCORE_ACCOUNT_KEY");
@@ -128,18 +118,21 @@ export function wireTestnet(
     }),
     transport: http(),
   });
-  if (hyperCoreAccount && shareVault) {
+  const withdrawal = hyperCoreAccount && {
+    account: hyperCoreAccount,
+    coreDepositWallet,
+    hyperliquidChain: "Testnet" as const,
+    sourceDex: env("HYPERCORE_SOURCE_DEX") === "spot" ? ("spot" as const) : ("" as const),
+    gasLimit: Number(env("HYPERCORE_RETURN_GAS_LIMIT") ?? DEFAULT_RETURN_GAS_LIMIT),
+    match,
+    exchange: new HttpHyperliquidExchange(NETWORKS.hyperliquidTestnetApi.exchangeUrl),
+    ledger,
+    burns: new ViemHyperEvmBurns(hyperEvm, CIRCLE_TESTNET.tokenMessengerV2),
+  };
+  if (withdrawal && shareVault) {
     adapters["hypercore-arc"] = new HypercoreArcAdapter({
-      account: hyperCoreAccount,
+      ...withdrawal,
       vault: shareVault,
-      coreDepositWallet,
-      hyperliquidChain: "Testnet",
-      sourceDex: env("HYPERCORE_SOURCE_DEX") === "spot" ? "spot" : "",
-      gasLimit: Number(env("HYPERCORE_RETURN_GAS_LIMIT") ?? DEFAULT_RETURN_GAS_LIMIT),
-      match,
-      exchange: new HttpHyperliquidExchange(NETWORKS.hyperliquidTestnetApi.exchangeUrl),
-      ledger,
-      burns: new ViemHyperEvmBurns(hyperEvm, CIRCLE_TESTNET.tokenMessengerV2),
       fees: new IrisReturnFees(env("IRIS_URL") ?? IRIS_SANDBOX_URL),
       iris,
       vaultBalance: () =>
@@ -175,18 +168,10 @@ export function wireTestnet(
       };
     }
     const makerOwner = env("REBALANCE_MAKER_OWNER");
-    if (hyperCoreAccount && makerOwner) {
+    if (withdrawal && makerOwner) {
       const owner = new PublicKey(makerOwner);
       adapters["hypercore-solana"] = new HypercoreSolanaAdapter({
-        account: hyperCoreAccount,
-        coreDepositWallet,
-        hyperliquidChain: "Testnet",
-        sourceDex: env("HYPERCORE_SOURCE_DEX") === "spot" ? "spot" : "",
-        gasLimit: Number(env("HYPERCORE_RETURN_GAS_LIMIT") ?? DEFAULT_RETURN_GAS_LIMIT),
-        match,
-        exchange: new HttpHyperliquidExchange(NETWORKS.hyperliquidTestnetApi.exchangeUrl),
-        ledger,
-        burns: new ViemHyperEvmBurns(hyperEvm, CIRCLE_TESTNET.tokenMessengerV2),
+        ...withdrawal,
         iris,
         solana,
         makerOwner: owner,

@@ -10,21 +10,11 @@ import {
 } from "../src/executor.ts";
 import type { Attestation, Attester } from "../src/iris.ts";
 import { TransferStore } from "../src/transfers.ts";
-import { buildBurnMessage, clock, tempJournal, word } from "./helpers.ts";
+import { buildBurnMessage, clock, tempJournal, topUp, word } from "./helpers.ts";
 
 const intentId = (n: number) => word(n);
 
-function intent(overrides: Partial<TopUpIntent> = {}): TopUpIntent {
-  return {
-    intentId: intentId(1),
-    closeId: 1,
-    route: "arc-hypercore",
-    amount: "500000000",
-    reason: "margin-low",
-    marginRatioBps: 9000,
-    ...overrides,
-  };
-}
+const intent = topUp;
 
 function config(overrides: Partial<ExecutorConfig> = {}): ExecutorConfig {
   return {

@@ -2,7 +2,7 @@ import { CCTP_DOMAINS, type BridgeTransfer } from "@noirwire/shared";
 import type { PublicKey } from "@solana/web3.js";
 import { bytesToHex, parseAbiItem, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { z } from "zod";
-import { BurnRefused, type AdapterContext, type DeliverResult, type RouteAdapter } from "./executor.ts";
+import { BurnRefused, forwarderDelivery, type AdapterContext, type DeliverResult, type RouteAdapter } from "./executor.ts";
 import {
   matchesDebit,
   type HyperCoreLedger,
@@ -21,6 +21,7 @@ import type { Attester } from "./iris.ts";
 import { addressToBytes32, decodeBurnBody, decodeMessage } from "./message.ts";
 import type { SolanaDriver } from "./solana.ts";
 import type { StepRecord } from "./transfers.ts";
+import type { StepLog } from "./vault.ts";
 
 export const LEDGER_CLOCK_SKEW_MS = 60_000;
 const HYPEREVM_LOG_RANGE = 1000n;
@@ -133,6 +134,8 @@ export type HypercoreArcOptions = HypercoreWithdrawOptions & {
 
 const burnTxOf = (record: StepRecord): string => `hl:${record.nonce}`;
 
+const markSent = (journal: StepLog, record: StepRecord): void => journal.write({ ...record, status: "sent" }, true);
+
 type WithdrawDestination = { recipient: string; encoding: "hex" | "base58"; domain: number };
 
 export abstract class HypercoreWithdrawAdapter<O extends HypercoreWithdrawOptions> implements RouteAdapter {
@@ -169,7 +172,7 @@ export abstract class HypercoreWithdrawAdapter<O extends HypercoreWithdrawOption
       journal.write(record, true);
       fresh = true;
     } else if (await this.debitSeen(record, amount)) {
-      journal.write({ ...record, status: "sent" }, true);
+      markSent(journal, record);
       return { burnTx: burnTxOf(record) };
     }
 
@@ -180,7 +183,7 @@ export abstract class HypercoreWithdrawAdapter<O extends HypercoreWithdrawOption
       journal.write({ ...record, status: "refused", reason }, true);
       throw new BurnRefused(reason);
     }
-    journal.write({ ...record, status: "sent" }, true);
+    markSent(journal, record);
     return { burnTx: burnTxOf(record) };
   }
 
@@ -257,9 +260,7 @@ export class HypercoreArcAdapter extends HypercoreWithdrawAdapter<HypercoreArcOp
     const txHash = journal.read()?.txHash;
     if (!txHash) return { status: "pending", reason: "the HyperEVM burn has not been located" };
     const result = await this.options.iris.fetchAttestation({ sourceDomain: transfer.sourceDomain, txHash });
-    if (result.forward?.state === "COMPLETE") return { status: "done", state: "minted", tx: result.forward.mintTxHash };
-    if (result.forward?.state === "FAILED") return { status: "pending", reason: "Circle forwarder reported a failure" };
-    return { status: "pending", reason: "waiting for the Circle forwarder" };
+    return forwarderDelivery(result.forward, "minted");
   }
 
   destinationBalance(): Promise<bigint> {

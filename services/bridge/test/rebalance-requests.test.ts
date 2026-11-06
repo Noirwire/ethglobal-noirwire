@@ -1,4 +1,3 @@
-import type { AddressInfo } from "node:net";
 import { CCTP_DOMAINS } from "@noirwire/shared";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { bytesToHex, type Hex } from "viem";
@@ -14,7 +13,7 @@ import { RebalanceBook, SolanaFundingVerifier, type FundingCheck, type FundingVe
 import { createBridgeServer } from "../src/server.ts";
 import { SolanaDriver } from "../src/solana.ts";
 import { TransferStore } from "../src/transfers.ts";
-import { buildBurnMessage, clock, word } from "./helpers.ts";
+import { buildBurnMessage, clock, closeServers, listen, word } from "./helpers.ts";
 
 const TOKEN = "r".repeat(40);
 const AMOUNT = 400_000_000n;
@@ -192,18 +191,10 @@ function rig() {
   };
 }
 
-const open: ReturnType<typeof createBridgeServer>[] = [];
+const serve = (r: ReturnType<typeof rig>): Promise<string> =>
+  listen(createBridgeServer(r.store, r.executor, undefined, undefined, undefined, { book: r.book, token: TOKEN }));
 
-async function serve(r: ReturnType<typeof rig>): Promise<string> {
-  const server = createBridgeServer(r.store, r.executor, undefined, undefined, undefined, { book: r.book, token: TOKEN });
-  open.push(server);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-}
-
-afterEach(() => {
-  for (const server of open.splice(0)) server.close();
-});
+afterEach(closeServers);
 
 const post = (base: string, path: string, body: unknown, token: string | null = TOKEN) =>
   fetch(`${base}${path}`, {

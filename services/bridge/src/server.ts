@@ -35,10 +35,14 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 
 class BadRequest extends Error {}
 
-async function readBody<T>(req: IncomingMessage, schema: z.ZodType<T>): Promise<T> {
+async function readText(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
-  const text = Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function readBody<T>(req: IncomingMessage, schema: z.ZodType<T>): Promise<T> {
+  const text = await readText(req);
   const parsed = schema.safeParse(text.trim() ? JSON.parse(text) : {});
   if (!parsed.success) throw new BadRequest(parsed.error.message);
   return parsed.data;
@@ -89,10 +93,9 @@ export type RebalanceApi = { book: RebalanceBook; token?: string };
 const REBALANCE_PREFIX = "/v1/rebalance/requests";
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  const text = await readText(req);
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return JSON.parse(text);
   } catch {
     throw new RequestInvalid("the body is not valid JSON");
   }
@@ -106,6 +109,81 @@ function authorized(req: IncomingMessage, token: string): boolean {
   const header = req.headers.authorization ?? "";
   const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
   return timingSafeEqual(digest(presented), digest(token));
+}
+
+async function handleRebalance(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  rebalance: RebalanceApi,
+  executor: TreasuryExecutor,
+): Promise<void> {
+  if (rebalance.token && !authorized(req, rebalance.token)) return json(res, 401, { error: "unauthorized" });
+  const tail = url.pathname.slice(REBALANCE_PREFIX.length);
+  if (req.method === "POST" && tail === "") {
+    const accepted = rebalance.book.accept(await readJson(req));
+    void rebalance.book.tick().then(() => executor.tick());
+    return json(res, 202, accepted);
+  }
+  const id = decodeURIComponent(tail.split("/")[1] ?? "");
+  if (req.method === "GET" && /^\/[^/]+$/.test(tail)) {
+    const state = rebalance.book.state(id);
+    return state ? json(res, 200, { state }) : json(res, 404, { error: "unknown request" });
+  }
+  if (req.method === "POST" && /^\/[^/]+\/funded$/.test(tail)) {
+    const body = fundedBody.safeParse(await readJson(req));
+    if (!body.success) throw new RequestInvalid(body.error.message);
+    const state = await rebalance.book.funded(id, body.data.signature);
+    void executor.tick();
+    return json(res, 202, { state });
+  }
+  return json(res, 404, { error: "not found" });
+}
+
+function handleTransfers(req: IncomingMessage, res: ServerResponse, url: URL, store: TransferStore, executor: TreasuryExecutor): boolean {
+  if (req.method === "GET" && url.pathname === "/v1/transfers") {
+    const state = url.searchParams.get("state");
+    const transfers = state === "in-flight" ? store.inFlight() : store.list().filter((t) => !state || t.state === state);
+    json(res, 200, transfers.map((transfer) => executor.view(transfer)));
+    return true;
+  }
+  if (req.method === "GET" && url.pathname.startsWith("/v1/transfers/")) {
+    const transfer = store.get(decodeURIComponent(url.pathname.slice("/v1/transfers/".length)));
+    if (transfer) json(res, 200, executor.view(transfer));
+    else json(res, 404, { error: "unknown transfer" });
+    return true;
+  }
+  return false;
+}
+
+async function handleDeposits(req: IncomingMessage, res: ServerResponse, url: URL, solanaDeposits: SolanaDepositApi): Promise<boolean> {
+  if (req.method === "GET" && url.pathname === "/v1/deposits/solana/status") {
+    json(res, 200, solanaDeposits.status());
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/v1/deposits/solana/prepare") {
+    const body = await readBody(req, prepareBody);
+    json(res, 200, await solanaDeposits.prepare({ ...body, amount: BigInt(body.amount) }));
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/v1/deposits/solana/submitted") {
+    const { signature } = await readBody(req, submittedBody);
+    json(res, 202, { transfer: await solanaDeposits.register(signature) });
+    return true;
+  }
+  return false;
+}
+
+function streamEvents(req: IncomingMessage, res: ServerResponse, store: TransferStore): void {
+  res.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+    ...ALLOW_ORIGIN,
+  });
+  res.write(": connected\n\n");
+  const off = store.onChange((transfer) => res.write(`data: ${JSON.stringify(transferEvent(transfer))}\n\n`));
+  req.on("close", off);
 }
 
 export function createBridgeServer(
@@ -124,39 +202,12 @@ export function createBridgeServer(
         return res.end();
       }
       if (rebalance && url.pathname.startsWith(REBALANCE_PREFIX)) {
-        if (rebalance.token && !authorized(req, rebalance.token)) return json(res, 401, { error: "unauthorized" });
-        const tail = url.pathname.slice(REBALANCE_PREFIX.length);
-        if (req.method === "POST" && tail === "") {
-          const accepted = rebalance.book.accept(await readJson(req));
-          void rebalance.book.tick().then(() => executor.tick());
-          return json(res, 202, accepted);
-        }
-        const id = decodeURIComponent(tail.split("/")[1] ?? "");
-        if (req.method === "GET" && /^\/[^/]+$/.test(tail)) {
-          const state = rebalance.book.state(id);
-          return state ? json(res, 200, { state }) : json(res, 404, { error: "unknown request" });
-        }
-        if (req.method === "POST" && /^\/[^/]+\/funded$/.test(tail)) {
-          const body = fundedBody.safeParse(await readJson(req));
-          if (!body.success) throw new RequestInvalid(body.error.message);
-          const state = await rebalance.book.funded(id, body.data.signature);
-          void executor.tick();
-          return json(res, 202, { state });
-        }
-        return json(res, 404, { error: "not found" });
+        return await handleRebalance(req, res, url, rebalance, executor);
       }
       if (req.method === "POST" && apiToken && !authorized(req, apiToken)) {
         return json(res, 401, { error: "unauthorized" });
       }
-      if (req.method === "GET" && url.pathname === "/v1/transfers") {
-        const state = url.searchParams.get("state");
-        const transfers = state === "in-flight" ? store.inFlight() : store.list().filter((t) => !state || t.state === state);
-        return json(res, 200, transfers.map((transfer) => executor.view(transfer)));
-      }
-      if (req.method === "GET" && url.pathname.startsWith("/v1/transfers/")) {
-        const transfer = store.get(decodeURIComponent(url.pathname.slice("/v1/transfers/".length)));
-        return transfer ? json(res, 200, executor.view(transfer)) : json(res, 404, { error: "unknown transfer" });
-      }
+      if (handleTransfers(req, res, url, store, executor)) return;
       if (req.method === "POST" && url.pathname === "/v1/intents") {
         const transfers = executor.submitExternal(await readBody(req, topUpIntent));
         void executor.tick();
@@ -166,29 +217,8 @@ export function createBridgeServer(
         const { amount } = await readBody(req, devDepositBody);
         return json(res, 202, devDeposit(amount === undefined ? undefined : BigInt(amount)));
       }
-      if (req.method === "GET" && url.pathname === "/v1/deposits/solana/status") {
-        return json(res, 200, solanaDeposits.status());
-      }
-      if (req.method === "POST" && url.pathname === "/v1/deposits/solana/prepare") {
-        const body = await readBody(req, prepareBody);
-        return json(res, 200, await solanaDeposits.prepare({ ...body, amount: BigInt(body.amount) }));
-      }
-      if (req.method === "POST" && url.pathname === "/v1/deposits/solana/submitted") {
-        const { signature } = await readBody(req, submittedBody);
-        return json(res, 202, { transfer: await solanaDeposits.register(signature) });
-      }
-      if (req.method === "GET" && url.pathname === "/events") {
-        res.writeHead(200, {
-          "content-type": "text/event-stream",
-          "cache-control": "no-cache",
-          connection: "keep-alive",
-          ...ALLOW_ORIGIN,
-        });
-        res.write(": connected\n\n");
-        const off = store.onChange((transfer) => res.write(`data: ${JSON.stringify(transferEvent(transfer))}\n\n`));
-        req.on("close", off);
-        return;
-      }
+      if (await handleDeposits(req, res, url, solanaDeposits)) return;
+      if (req.method === "GET" && url.pathname === "/events") return streamEvents(req, res, store);
       return json(res, 404, { error: "not found" });
     } catch (error) {
       if (knownError(res, error)) return;

@@ -121,6 +121,22 @@ export function watcherSettings(env: (name: string) => string | undefined): {
   };
 }
 
+export type IntentWatcherWiring = { build: (executor: TreasuryExecutor) => OnchainIntentWatcher; pollMs: number };
+
+export function intentWatcherWiring(env: (name: string) => string | undefined, client: PublicClient, receiver: Hex): IntentWatcherWiring {
+  const settings = watcherSettings(env);
+  return {
+    pollMs: settings.pollMs,
+    build: (executor) =>
+      new OnchainIntentWatcher(
+        new ViemIntentLogReader(client, receiver),
+        new DurableCursor(settings.cursorFile),
+        executor,
+        settings.options,
+      ),
+  };
+}
+
 export type PollResult = { submitted: number; refused: number; malformed: number };
 
 const DEFAULT_MAX_RANGE = 2000n;

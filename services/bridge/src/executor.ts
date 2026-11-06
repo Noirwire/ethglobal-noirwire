@@ -1,9 +1,9 @@
 import { CCTP_DOMAINS, SETTLED_TRANSFER_STATES, type BridgeTransfer, type TopUpIntent, type TransferRoute } from "@noirwire/shared";
 import type { Hex } from "viem";
-import type { Attester } from "./iris.ts";
+import type { Attestation, Attester } from "./iris.ts";
 import { decodeBurnBody, decodeMessage, messageHash } from "./message.ts";
 import type { StateTimeouts, StepKey, TransferStore } from "./transfers.ts";
-import type { StepLog, VaultPort } from "./vault.ts";
+import type { StepLog, StepOutcome, VaultPort } from "./vault.ts";
 
 export const HYPERCORE_MAX_PER_TRANSFER = 1_000_000_000n;
 const RELEASED_FROM_VAULT: ReadonlySet<TransferRoute> = new Set(["arc-hypercore"]);
@@ -19,6 +19,16 @@ export const REQUEST_EXPIRED_REASON = "the request expired before the transfer s
 export type DeliverResult =
   | { status: "done"; state: "minted" | "hook-executed" | "forwarded"; tx?: string }
   | { status: "pending"; reason: string };
+
+export function forwarderDelivery(forward: Attestation["forward"], completed: "minted" | "forwarded"): DeliverResult {
+  if (forward?.state === "COMPLETE") return { status: "done", state: completed, tx: forward.mintTxHash };
+  if (forward?.state === "FAILED") return { status: "pending", reason: "Circle forwarder reported a failure" };
+  return { status: "pending", reason: "waiting for the Circle forwarder" };
+}
+
+function expectedMint(transfer: BridgeTransfer): bigint {
+  return transfer.netMinted !== undefined ? BigInt(transfer.netMinted) : BigInt(transfer.grossAmount) - BigInt(transfer.maxFee);
+}
 
 export type AdapterContext = { journal: StepLog };
 
@@ -347,30 +357,41 @@ export class TreasuryExecutor {
     const concern = adapter.preflight ? await adapter.preflight(transfer) : undefined;
     if (concern) return { changed: false, pending: concern };
     if (SERIALIZED_ROUTES.has(transfer.route) && adapter.destinationBalance) {
-      const ahead = this.store
-        .inFlight()
-        .some((t) => SERIALIZED_ROUTES.has(t.route) && t.transferId !== id && t.state !== "requested");
-      if (ahead) return { changed: false, pending: "waiting for the previous HyperCore transfer to settle" };
-      if (this.store.meta(id)?.baselineBalance === undefined) {
-        const baseline = await adapter.destinationBalance(transfer);
-        this.store.setMeta(id, { baselineBalance: baseline.toString(), burnStartedAt: this.now().toISOString() });
-      }
+      if (this.settledBehind(id)) return { changed: false, pending: "waiting for the previous HyperCore transfer to settle" };
+      if (this.store.meta(id)?.baselineBalance === undefined) this.recordBaseline(id, await adapter.destinationBalance(transfer));
     }
     const vault = this.config.vault;
     if (vault && this.releasesFromVault(transfer)) {
-      const released = await vault.release(
-        this.stepLog(id, "release"),
-        BigInt(transfer.grossAmount),
-        this.store.stepTxHashes("release"),
+      const refused = this.releaseSetback(
+        id,
+        await vault.release(this.stepLog(id, "release"), BigInt(transfer.grossAmount), this.store.stepTxHashes("release")),
       );
-      if (released.status === "pending") return { changed: false, pending: released.reason };
-      if (released.status === "refused") {
-        const reason = `vault refused the release: ${released.reason}`;
-        console.error(`transfer ${id} refused: ${reason}`);
-        this.store.refuse(id, reason);
-        return { changed: true };
-      }
+      if (refused) return refused;
     }
+    return this.adapterBurn(transfer, adapter, resumable);
+  }
+
+  private settledBehind(id: string): boolean {
+    return this.store.inFlight().some((t) => SERIALIZED_ROUTES.has(t.route) && t.transferId !== id && t.state !== "requested");
+  }
+
+  private recordBaseline(id: string, baseline: bigint): void {
+    this.store.setMeta(id, { baselineBalance: baseline.toString(), burnStartedAt: this.now().toISOString() });
+  }
+
+  private releaseSetback(id: string, released: StepOutcome): StepResult | undefined {
+    if (released.status === "pending") return { changed: false, pending: released.reason };
+    if (released.status === "refused") {
+      const reason = `vault refused the release: ${released.reason}`;
+      console.error(`transfer ${id} refused: ${reason}`);
+      this.store.refuse(id, reason);
+      return { changed: true };
+    }
+    return undefined;
+  }
+
+  private async adapterBurn(transfer: BridgeTransfer, adapter: RouteAdapter, resumable: boolean): Promise<StepResult> {
+    const id = transfer.transferId;
     if (!resumable) this.store.beginBurn(id);
     try {
       const { burnTx } = await adapter.burn(transfer, this.context(id));
@@ -406,8 +427,7 @@ export class TreasuryExecutor {
 
   private async acknowledgeReturn(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
     const vault = this.config.vault as VaultPort;
-    const amount =
-      transfer.netMinted !== undefined ? BigInt(transfer.netMinted) : BigInt(transfer.grossAmount) - BigInt(transfer.maxFee);
+    const amount = expectedMint(transfer);
     const baseline = this.store.meta(transfer.transferId)?.baselineBalance;
     if (adapter.destinationBalance && baseline !== undefined) {
       const risen = (await adapter.destinationBalance(transfer)) - BigInt(baseline);
@@ -470,8 +490,7 @@ export class TreasuryExecutor {
     if (!adapter.destinationBalance) return { changed: false, pending: "no HyperCore balance reader" };
     const baseline = this.store.meta(transfer.transferId)?.baselineBalance;
     if (baseline === undefined) return { changed: false, pending: "no baseline balance recorded" };
-    const expected =
-      transfer.netMinted !== undefined ? BigInt(transfer.netMinted) : BigInt(transfer.grossAmount) - BigInt(transfer.maxFee);
+    const expected = expectedMint(transfer);
     if (adapter.creditedInLedger) {
       const since = Date.parse(this.store.meta(transfer.transferId)?.burnStartedAt ?? "");
       if (Number.isNaN(since)) return { changed: false, pending: "no burn start time recorded" };

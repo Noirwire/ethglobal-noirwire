@@ -2,7 +2,7 @@ import { LOCAL_NETWORKS, type TransferRoute } from "@noirwire/shared";
 import { TreasuryExecutor, type ExecutorConfig, type RouteAdapter } from "./executor.ts";
 import { IrisClient, type Attester } from "./iris.ts";
 import { DEFAULT_DEV_DEPOSIT, setupLocalArc } from "./local-arc.ts";
-import { DurableCursor, OnchainIntentWatcher, ViemIntentLogReader, watcherSettings } from "./intent-watcher.ts";
+import { intentWatcherWiring, type IntentWatcherWiring } from "./intent-watcher.ts";
 import { createBridgeServer, DEFAULT_BRIDGE_PORT, IntentFileWatcher, resolveApiToken, type DevDeposit } from "./server.ts";
 import { UnavailableDeposits, type SolanaDepositApi } from "./solana-deposit.ts";
 import { AcceptingFundingVerifier, RebalanceBook } from "./rebalance.ts";
@@ -40,7 +40,7 @@ let attester: Attester;
 let devDeposit: DevDeposit | undefined;
 let executor: TreasuryExecutor;
 let buildSolanaDeposits: ((executor: TreasuryExecutor) => SolanaDepositApi) | undefined;
-let intentWatcher: { build: (executor: TreasuryExecutor) => OnchainIntentWatcher; pollMs: number } | undefined;
+let intentWatcher: IntentWatcherWiring | undefined;
 let buildRebalance: RebalanceWiring | undefined;
 const rebalanceToken = resolveApiToken("local", env("REBALANCE_API_TOKEN"), "REBALANCE_API_TOKEN");
 const LOCAL_DEPOSIT_REASON = "The bridge runs on a local chain, so there is no Solana burn to sign. Use the local simulation instead.";
@@ -78,17 +78,7 @@ if (network === "local") {
   };
   const navReceiver = arc.addresses.navReceiver;
   if (navReceiver) {
-    const settings = watcherSettings(env);
-    intentWatcher = {
-      pollMs: settings.pollMs,
-      build: (executor) =>
-        new OnchainIntentWatcher(
-          new ViemIntentLogReader(arc.publicClient, navReceiver),
-          new DurableCursor(settings.cursorFile),
-          executor,
-          settings.options,
-        ),
-    };
+    intentWatcher = intentWatcherWiring(env, arc.publicClient, navReceiver);
   }
   devDeposit = (amount) => {
     const transfers = executor.submit(arc.depositIntent(amount ?? DEFAULT_DEV_DEPOSIT));

@@ -105,8 +105,7 @@ export class VaultTreasury implements VaultPort {
         const recovered = await this.recover(call, record, claimed);
         if ("pending" in recovered) return { status: "pending", reason: recovered.pending };
         if (recovered.txHash) {
-          record = { ...record, status: "sent", txHash: recovered.txHash };
-          log.write(record, true);
+          record = this.markSent(log, record, recovered.txHash);
         } else {
           const blocked = await this.revertReason(call);
           if (blocked) return this.blocked(log, amount, blocked, onRevert);
@@ -114,8 +113,7 @@ export class VaultTreasury implements VaultPort {
       }
       if (record.status === "armed") {
         const txHash = await this.chain.send(call);
-        record = { ...record, status: "sent", txHash };
-        log.write(record, true);
+        record = this.markSent(log, record, txHash);
       }
     }
 
@@ -132,6 +130,12 @@ export class VaultTreasury implements VaultPort {
     }
     log.write({ ...record, status: "done" }, true);
     return { status: "done", txHash: record.txHash as string };
+  }
+
+  private markSent(log: StepLog, record: StepRecord, txHash: Hex): StepRecord {
+    const sent = { ...record, status: "sent" as const, txHash };
+    log.write(sent, true);
+    return sent;
   }
 
   private blocked(log: StepLog, amount: string, reason: string, onRevert: RevertPolicy): StepOutcome {

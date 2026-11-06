@@ -1,11 +1,10 @@
-import type { AddressInfo } from "node:net";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { TreasuryExecutor } from "../src/executor.ts";
 import { LocalAttester } from "../src/iris.ts";
 import { createBridgeServer, IntentFileWatcher, resolveApiToken } from "../src/server.ts";
 import { TransferStore } from "../src/transfers.ts";
-import { idleAdapter, newTransfer, tempJournal, word } from "./helpers.ts";
+import { closeServers, idleAdapter, listen, newTransfer, tempJournal, word } from "./helpers.ts";
 
 function setup() {
   const store = new TransferStore();
@@ -22,17 +21,7 @@ function setup() {
   return { store, executor, server };
 }
 
-const open: ReturnType<typeof createBridgeServer>[] = [];
-
-async function listen(server: ReturnType<typeof createBridgeServer>): Promise<string> {
-  open.push(server);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-}
-
-afterEach(() => {
-  for (const server of open.splice(0)) server.close();
-});
+afterEach(closeServers);
 
 describe("HTTP API", () => {
   it("lists in-flight transfers and fetches one by id", async () => {

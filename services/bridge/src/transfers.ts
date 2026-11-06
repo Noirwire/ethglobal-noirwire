@@ -8,7 +8,7 @@ import {
   type TransferState,
 } from "@noirwire/shared";
 
-export type StepStatus = "armed" | "sent" | "done" | "refused";
+type StepStatus = "armed" | "sent" | "done" | "refused";
 
 export type StepRecord = {
   status: StepStatus;
@@ -37,7 +37,7 @@ export type TransferMeta = {
   refusedReason?: string;
 };
 
-export type TransferRecord = { transfer: BridgeTransfer; meta: TransferMeta };
+type TransferRecord = { transfer: BridgeTransfer; meta: TransferMeta };
 
 type JournalEntry = { seq: number; at: string; op: "create" | "update"; record: TransferRecord };
 

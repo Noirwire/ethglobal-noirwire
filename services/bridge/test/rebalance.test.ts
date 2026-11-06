@@ -6,7 +6,7 @@ import type { Attestation, Attester } from "../src/iris.ts";
 import { TransferStore } from "../src/transfers.ts";
 import { VaultTreasury } from "../src/vault.ts";
 import { FakeVaultChain } from "./fake-vault.ts";
-import { buildBurnMessage, tempJournal, word } from "./helpers.ts";
+import { buildBurnMessage, tempJournal, topUp, word } from "./helpers.ts";
 
 const VAULT = "0x00000000000000000000000000000000000000bb";
 const TREASURY = "0x00000000000000000000000000000000000000aa";
@@ -85,17 +85,7 @@ class ReturnSim implements RouteAdapter {
   }
 }
 
-function intent(overrides: Partial<TopUpIntent> = {}): TopUpIntent {
-  return {
-    intentId: word(1),
-    closeId: 1,
-    route: "arc-hypercore",
-    amount: "500000000",
-    reason: "margin-low",
-    marginRatioBps: 12000,
-    ...overrides,
-  };
-}
+const intent = (overrides: Partial<TopUpIntent> = {}): TopUpIntent => topUp({ marginRatioBps: 12000, ...overrides });
 
 function rig(journal = tempJournal(), chain = new FakeVaultChain(START_LEDGER)) {
   const store = new TransferStore(journal);

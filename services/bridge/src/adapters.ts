@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { CCTP_DOMAINS, type BridgeTransfer } from "@noirwire/shared";
 import { bytesToHex, type Hex } from "viem";
-import type { AdapterContext, DeliverResult, RouteAdapter } from "./executor.ts";
+import { forwarderDelivery, type AdapterContext, type DeliverResult, type RouteAdapter } from "./executor.ts";
 import type { StepLog } from "./vault.ts";
 import type { EvmDriver } from "./evm.ts";
 import { encodeForwardHookData, encodeVaultHookData, HYPERCORE_DEX } from "./hooks.ts";
@@ -12,6 +12,16 @@ import type { SolanaDriver } from "./solana.ts";
 
 function armMessageAccount(journal: StepLog, transfer: BridgeTransfer): (messageAccount: PublicKey) => void {
   return (messageAccount) => journal.write({ status: "armed", amount: transfer.grossAmount, messageAccount: messageAccount.toBase58() }, true);
+}
+
+async function solanaBalanceConcern(solana: SolanaDriver, transfer: BridgeTransfer): Promise<string | undefined> {
+  const balance = await solana.usdcBalance();
+  const amount = BigInt(transfer.grossAmount);
+  return balance < amount ? `the bridge Solana account holds ${balance} base units, less than the ${amount} to burn` : undefined;
+}
+
+function burnMessage(evm: EvmDriver, transfer: BridgeTransfer): Promise<Hex | undefined> {
+  return evm.messageFromBurn(transfer.burnTx as Hex);
 }
 
 export type HypercoreForwardOptions = {
@@ -41,15 +51,24 @@ abstract class HypercoreForwardAdapter implements RouteAdapter {
       sourceDomain: transfer.sourceDomain,
       txHash: transfer.burnTx as string,
     });
-    if (result.forward?.state === "COMPLETE") {
-      return { status: "done", state: "forwarded", tx: result.forward.mintTxHash };
-    }
-    if (result.forward?.state === "FAILED") return { status: "pending", reason: "Circle forwarder reported a failure" };
-    return { status: "pending", reason: "waiting for the Circle forwarder" };
+    return forwarderDelivery(result.forward, "forwarded");
   }
 
   destinationBalance(): Promise<bigint> {
     return this.options.reader.balance(this.options.recipient);
+  }
+
+  protected burnParams(transfer: BridgeTransfer) {
+    const forwarder = addressToBytes32(this.options.forwarder);
+    return {
+      amount: BigInt(transfer.grossAmount),
+      destinationDomain: CCTP_DOMAINS.hyperEvm,
+      mintRecipient: forwarder,
+      destinationCaller: forwarder,
+      maxFee: BigInt(transfer.maxFee),
+      minFinalityThreshold: FINALITY_FAST,
+      hookData: encodeForwardHookData(this.options.recipient, HYPERCORE_DEX.perps),
+    };
   }
 }
 
@@ -62,25 +81,13 @@ export class SolanaHypercoreAdapter extends HypercoreForwardAdapter {
     super(iris, options);
   }
 
-  async preflight(transfer: BridgeTransfer): Promise<string | undefined> {
-    const balance = await this.solana.usdcBalance();
-    const amount = BigInt(transfer.grossAmount);
-    return balance < amount ? `the bridge Solana account holds ${balance} base units, less than the ${amount} to burn` : undefined;
+  preflight(transfer: BridgeTransfer): Promise<string | undefined> {
+    return solanaBalanceConcern(this.solana, transfer);
   }
 
   async burn(transfer: BridgeTransfer, { journal }: AdapterContext): Promise<{ burnTx: string }> {
-    const forwarder = addressToBytes32(this.options.forwarder);
     const { signature } = await this.solana.burn(
-      {
-        transferId: transfer.transferId,
-        amount: BigInt(transfer.grossAmount),
-        destinationDomain: CCTP_DOMAINS.hyperEvm,
-        mintRecipient: forwarder,
-        destinationCaller: forwarder,
-        maxFee: BigInt(transfer.maxFee),
-        minFinalityThreshold: FINALITY_FAST,
-        hookData: encodeForwardHookData(this.options.recipient, HYPERCORE_DEX.perps),
-      },
+      { transferId: transfer.transferId, ...this.burnParams(transfer) },
       armMessageAccount(journal, transfer),
     );
     return { burnTx: signature };
@@ -101,21 +108,12 @@ export class ArcHypercoreAdapter extends HypercoreForwardAdapter {
   }
 
   async burn(transfer: BridgeTransfer): Promise<{ burnTx: string }> {
-    const forwarder = addressToBytes32(this.options.forwarder);
-    const burnTx = await this.evm.depositForBurn({
-      amount: BigInt(transfer.grossAmount),
-      destinationDomain: CCTP_DOMAINS.hyperEvm,
-      mintRecipient: forwarder,
-      destinationCaller: forwarder,
-      maxFee: BigInt(transfer.maxFee),
-      minFinalityThreshold: FINALITY_FAST,
-      hookData: encodeForwardHookData(this.options.recipient, HYPERCORE_DEX.perps),
-    });
+    const burnTx = await this.evm.depositForBurn(this.burnParams(transfer));
     return { burnTx };
   }
 
   messageFor(transfer: BridgeTransfer): Promise<Hex | undefined> {
-    return this.evm.messageFromBurn(transfer.burnTx as Hex);
+    return burnMessage(this.evm, transfer);
   }
 }
 
@@ -139,10 +137,10 @@ export class ArcSolanaAdapter implements RouteAdapter {
   }
 
   messageFor(transfer: BridgeTransfer): Promise<Hex | undefined> {
-    return this.evm.messageFromBurn(transfer.burnTx as Hex);
+    return burnMessage(this.evm, transfer);
   }
 
-  async deliver(transfer: BridgeTransfer, message: Hex, attestation: Hex): Promise<DeliverResult> {
+  async deliver(_transfer: BridgeTransfer, message: Hex, attestation: Hex): Promise<DeliverResult> {
     const body = decodeBurnBody(decodeMessage(message).body);
     const tx = await this.solana.receive({ message, attestation, remoteToken: body.burnToken });
     return { status: "done", state: "minted", tx };
@@ -156,10 +154,8 @@ export class SolanaArcAdapter implements RouteAdapter {
     private readonly options: { hookExecutor: Hex; beneficiary: Hex; solanaDepositor: Hex; deadlineSeconds: number },
   ) {}
 
-  async preflight(transfer: BridgeTransfer): Promise<string | undefined> {
-    const balance = await this.solana.usdcBalance();
-    const amount = BigInt(transfer.grossAmount);
-    return balance < amount ? `the bridge Solana account holds ${balance} base units, less than the ${amount} to burn` : undefined;
+  preflight(transfer: BridgeTransfer): Promise<string | undefined> {
+    return solanaBalanceConcern(this.solana, transfer);
   }
 
   async burn(transfer: BridgeTransfer, { journal }: AdapterContext): Promise<{ burnTx: string }> {

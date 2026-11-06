@@ -1,7 +1,9 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CCTP_DOMAINS } from "@noirwire/shared";
+import type { Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { CCTP_DOMAINS, type TopUpIntent } from "@noirwire/shared";
 import { padHex, toHex, type Hex } from "viem";
 import { BURN_BODY_VERSION, encodeBurnBody, encodeMessage, FINALITY_FAST, MESSAGE_VERSION } from "../src/message.ts";
 import type { RouteAdapter } from "../src/executor.ts";
@@ -14,6 +16,30 @@ export const idleAdapter: RouteAdapter = {
   messageFor: async () => undefined,
   deliver: async () => ({ status: "pending", reason: "idle" }),
 };
+
+const openServers: Server[] = [];
+
+export async function listen(server: Server): Promise<string> {
+  openServers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+}
+
+export function closeServers(): void {
+  for (const server of openServers.splice(0)) server.close();
+}
+
+export function topUp(overrides: Partial<TopUpIntent> = {}): TopUpIntent {
+  return {
+    intentId: word(1),
+    closeId: 1,
+    route: "arc-hypercore",
+    amount: "500000000",
+    reason: "margin-low",
+    marginRatioBps: 9000,
+    ...overrides,
+  };
+}
 
 export function tempJournal(): string {
   return join(mkdtempSync(join(tmpdir(), "bridge-")), "transfers.ndjson");
