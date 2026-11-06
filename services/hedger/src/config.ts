@@ -29,7 +29,6 @@ const envSchema = z.object({
   UNKNOWN_ORDER_GRACE_MS: z.coerce.number().int().nonnegative().default(10_000),
   TICK_MS: z.coerce.number().int().positive().default(2_000),
   HEDGE_LEVERAGE_TARGET: z.coerce.number().min(3).max(5).default(4),
-  MIN_NOTIONAL_USD: z.coerce.number().positive().default(11),
   INITIAL_MAKER_POSITION_BTC8: z.string().regex(/^-?\d+$/).default("0"),
   JOURNAL_FILE: z.string().default("data/hedger-journal.ndjson"),
   EVENTS_FILE: z.string().default("data/hedger-events.ndjson"),
@@ -59,7 +58,6 @@ export type HedgerConfig = {
   unknownOrderGraceMs: number;
   tickMs: number;
   leverageTarget: number;
-  minNotional6: bigint;
   initialMakerPosition8: bigint;
   journalFile: string;
   eventsFile: string;
@@ -117,7 +115,6 @@ export function parseConfig(env: Record<string, string | undefined>): HedgerConf
     unknownOrderGraceMs: raw.UNKNOWN_ORDER_GRACE_MS,
     tickMs: raw.TICK_MS,
     leverageTarget: raw.HEDGE_LEVERAGE_TARGET,
-    minNotional6: usdToUsd6(raw.MIN_NOTIONAL_USD),
     initialMakerPosition8: BigInt(raw.INITIAL_MAKER_POSITION_BTC8),
     journalFile: raw.JOURNAL_FILE,
     eventsFile: raw.EVENTS_FILE,
