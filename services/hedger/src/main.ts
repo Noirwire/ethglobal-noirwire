@@ -113,6 +113,7 @@ export async function main(env: Record<string, string | undefined> = process.env
       confirmMaxAgeMs: config.confirmMaxAgeMs,
       blindAfterMs: config.blindAfterMs,
       unknownOrderGraceMs: demo ? 0 : config.unknownOrderGraceMs,
+      makerPositionMaxAgeMs: config.makerPositionMaxAgeMs,
       leverageTarget: config.leverageTarget,
       initialMakerPosition8: config.initialMakerPosition8,
       backoffBaseMs: demo ? DEMO_TICK_MS : DEFAULT_CONTROLLER_CONFIG.backoffBaseMs,

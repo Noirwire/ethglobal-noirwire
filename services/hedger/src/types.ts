@@ -70,6 +70,7 @@ export interface FillBatch {
   fills: MakerFill[];
   cursor: string;
   makerPosition8?: bigint;
+  makerPositionObservedAtMs?: number;
 }
 
 export interface FillSource {

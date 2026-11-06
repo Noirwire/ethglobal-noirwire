@@ -20,9 +20,11 @@ function shiftByBps(px8: bigint, bps: number, direction: "up" | "down"): bigint 
   return (px8 * (direction === "up" ? BPS + band : BPS - band)) / BPS;
 }
 
-export function limitPrice(markPx8: bigint, side: Side, priceBandBps: number, szDecimals: number): bigint {
+export function limitPrice(markPx8: bigint, side: Side, priceBandBps: number, szDecimals: number): bigint | null {
   const raw = shiftByBps(markPx8, priceBandBps, side === "buy" ? "up" : "down");
-  return roundPriceForSide(raw, side, szDecimals);
+  const inward = roundPriceForSide(raw, side === "buy" ? "sell" : "buy", szDecimals);
+  const crosses = side === "buy" ? inward >= markPx8 : inward <= markPx8;
+  return crosses ? inward : null;
 }
 
 export function aquaBandFor(

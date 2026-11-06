@@ -33,15 +33,20 @@ export async function attemptCancel(venue: HedgeVenue, cloid: string, log: Log):
   }
 }
 
-async function findFilledSizeByCloid(venue: HedgeVenue, order: JournalOrder): Promise<bigint | null> {
+type FillSearch = { kind: "found"; size8: bigint } | { kind: "absent" } | { kind: "unproven" };
+
+async function findFilledSizeByCloid(venue: HedgeVenue, order: JournalOrder): Promise<FillSearch> {
+  const since = order.intentAt - FILL_LOOKBACK_MS;
+  let fills;
   try {
-    const fills = await venue.fillsSince(order.intentAt - FILL_LOOKBACK_MS);
-    const matching = fills.filter((fill) => fill.cloid === order.cloid);
-    if (matching.length === 0) return null;
-    return matching.reduce((sum, fill) => sum + fill.size8, 0n);
+    fills = await venue.fillsSince(since);
   } catch {
-    return null;
+    return { kind: "unproven" };
   }
+  const matching = fills.filter((fill) => fill.cloid === order.cloid);
+  if (matching.length > 0) return { kind: "found", size8: matching.reduce((sum, fill) => sum + fill.size8, 0n) };
+  const unattributed = fills.some((fill) => fill.cloid === undefined && fill.side === order.side && fill.time >= since);
+  return unattributed ? { kind: "unproven" } : { kind: "absent" };
 }
 
 export async function resolveOrder(
@@ -83,10 +88,10 @@ export async function resolveOrder(
   }
 
   const found = await findFilledSizeByCloid(venue, order);
-  if (found !== null) {
-    return { kind: "settled", final: found >= order.size8 ? "filled" : "partial", filled8: found };
+  if (found.kind === "found") {
+    return { kind: "settled", final: found.size8 >= order.size8 ? "filled" : "partial", filled8: found.size8 };
   }
-  if (now - order.intentAt >= unknownOrderGraceMs) {
+  if (found.kind === "absent" && now - order.intentAt >= unknownOrderGraceMs) {
     return { kind: "settled", final: "not-placed", filled8: 0n };
   }
   return { kind: "pending" };

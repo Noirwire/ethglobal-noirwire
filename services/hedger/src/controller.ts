@@ -83,6 +83,7 @@ export interface ControllerConfig {
   backoffMaxMs: number;
   urgentShrinkBps: number;
   intentCooldownMs: number;
+  makerPositionMaxAgeMs: number;
 }
 
 export const DEFAULT_CONTROLLER_CONFIG: ControllerConfig = {
@@ -104,6 +105,7 @@ export const DEFAULT_CONTROLLER_CONFIG: ControllerConfig = {
   backoffMaxMs: 60_000,
   urgentShrinkBps: 5_000,
   intentCooldownMs: 300_000,
+  makerPositionMaxAgeMs: 15_000,
 };
 
 export function assertBtcPerpMarket(market: string, venueCoin: string): void {
@@ -164,6 +166,7 @@ export class HedgeController {
   private lastAqua8 = 0n;
   private lastConfirmedAt: number | null = null;
   private lastFillPollOkAt: number | null = null;
+  private lastPositionObservedAt = 0;
   private expectation: PositionExpectation | null = null;
   private throttle: Throttle = INITIAL_THROTTLE;
   private pendingFillIds: string[] = [];
@@ -308,6 +311,7 @@ export class HedgeController {
     try {
       const batch = await this.fillSource.poll();
       if (batch.makerPosition8 !== undefined) {
+        this.assertFreshPosition(batch.makerPositionObservedAtMs, now);
         this.makerPos8 = batch.makerPosition8;
         this.makerBlind = false;
       }
@@ -321,6 +325,17 @@ export class HedgeController {
       this.log(`fill source failed: ${String(error)}`);
     }
     return processed;
+  }
+
+  private assertFreshPosition(observedAt: number | undefined, now: number): void {
+    if (observedAt === undefined) return;
+    if (now - observedAt > this.config.makerPositionMaxAgeMs) {
+      throw new Error(`maker position observed ${now - observedAt} ms ago, over the max age`);
+    }
+    if (observedAt < this.lastPositionObservedAt) {
+      throw new Error("maker position is older than the last accepted one");
+    }
+    this.lastPositionObservedAt = observedAt;
   }
 
   private acceptFill(fill: MakerFill, now: number): boolean {
@@ -370,6 +385,7 @@ export class HedgeController {
     const delta8 = -(makerPos8 + aqua8) - position.pos8;
     const side = sideForDelta(delta8);
     const limitPx8 = limitPrice(account.markPx8, side, this.config.priceBandBps, spec.szDecimals);
+    if (limitPx8 === null) return { decision: "hold:price-band" };
     const minSize = minOrderSize(limitPx8, spec.szDecimals, spec.minNotional6);
 
     if (abs(delta8) < holdThreshold8(this.config.deadband8, minSize)) {

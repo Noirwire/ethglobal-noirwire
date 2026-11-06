@@ -12,7 +12,7 @@ import {
   TapeFillSource,
   type TapeFill,
 } from "../src/sources/tape.ts";
-import { makeHarness } from "./harness.ts";
+import { makeHarness, START_MS } from "./harness.ts";
 import { HedgeController } from "../src/controller.ts";
 import { EventBus } from "../src/events.ts";
 import { Journal } from "../src/journal.ts";
@@ -50,6 +50,7 @@ interface FakeVenueApi {
   positionStatus: number;
   requested: string[];
   networkDown: boolean;
+  observedAtMs: number;
 }
 
 function fakeApi(): { api: FakeVenueApi; fetchImpl: typeof fetch } {
@@ -60,6 +61,7 @@ function fakeApi(): { api: FakeVenueApi; fetchImpl: typeof fetch } {
     positionStatus: 200,
     requested: [],
     networkDown: false,
+    observedAtMs: START_MS,
   };
   const fetchImpl = (async (input: URL | string) => {
     const url = new URL(String(input));
@@ -70,7 +72,7 @@ function fakeApi(): { api: FakeVenueApi; fetchImpl: typeof fetch } {
         status: api.tapeStatus,
       });
     }
-    const body = { market: MARKET, size: api.position, observedAt: "2026-11-06T08:00:00.000Z" };
+    const body = { market: MARKET, size: api.position, observedAt: new Date(api.observedAtMs).toISOString() };
     return new Response(JSON.stringify(api.positionStatus === 200 ? body : { error: "x" }), {
       status: api.positionStatus,
     });
@@ -263,6 +265,7 @@ describe("controller with the polled maker position", () => {
     api.positionStatus = 200;
     api.position = "0.05";
     clock.advance(1_000);
+    api.observedAtMs = clock.now();
     await controller.tick();
     expect(venue.truePosition8).toBe(-5_000_000n);
   });

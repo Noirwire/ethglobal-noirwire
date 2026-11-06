@@ -30,10 +30,19 @@ export interface HlInfoLike {
   }>;
   orderStatus(params: { user: `0x${string}`; oid: `0x${string}` }): Promise<
     | { status: "unknownOid" }
-    | { status: "order"; order: { status: string; order: { origSz: string; sz: string } } }
+    | { status: "order"; order: { status: string; order: { origSz: string; sz: string; oid?: number } } }
   >;
   userFillsByTime(params: { user: `0x${string}`; startTime: number }): Promise<
-    Array<{ coin: string; px: string; sz: string; side: "B" | "A"; time: number; tid: number; oid: number }>
+    Array<{
+      coin: string;
+      px: string;
+      sz: string;
+      side: "B" | "A";
+      time: number;
+      tid: number;
+      oid: number;
+      cloid?: `0x${string}`;
+    }>
   >;
 }
 
@@ -87,6 +96,8 @@ async function loadSpec(info: HlInfoLike, coin: string): Promise<VenueSpec> {
 }
 
 export class HyperliquidVenue implements HedgeVenue {
+  private readonly cloidByOid = new Map<number, string>();
+
   private constructor(
     readonly spec: VenueSpec,
     private readonly options: HyperliquidVenueOptions,
@@ -135,6 +146,10 @@ export class HyperliquidVenue implements HedgeVenue {
       grouping: "na",
     });
     const status = response.response.data.statuses[0];
+    if (status && typeof status === "object") {
+      if ("filled" in status) this.cloidByOid.set(status.filled.oid, request.cloid);
+      if ("resting" in status) this.cloidByOid.set(status.resting.oid, request.cloid);
+    }
     return this.mapPlaceStatus(status, request);
   }
 
@@ -156,6 +171,7 @@ export class HyperliquidVenue implements HedgeVenue {
     });
     if (result.status === "unknownOid") return { state: "unknown", filled8: 0n };
     const { status, order } = result.order;
+    if (order.oid !== undefined) this.cloidByOid.set(order.oid, cloid);
     const filled8 = btcFromDecimal(order.origSz) - btcFromDecimal(order.sz);
     return { ...mapProcessingStatus(status), filled8: filled8 > 0n ? filled8 : 0n, reason: status };
   }
@@ -169,6 +185,7 @@ export class HyperliquidVenue implements HedgeVenue {
       .filter((fill) => fill.coin === this.spec.coin)
       .map((fill) => ({
         id: `${fill.oid}:${fill.tid}`,
+        cloid: fill.cloid ?? this.cloidByOid.get(fill.oid),
         side: fill.side === "B" ? ("buy" as const) : ("sell" as const),
         size8: btcFromDecimal(fill.sz),
         px8: priceFromDecimal(fill.px),

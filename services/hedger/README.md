@@ -67,6 +67,8 @@ Each tick, in this order: read venue position and account, THEN poll the fill so
 
 On startup the journal is replayed (maker position is the sum of journaled fills plus `INITIAL_MAKER_POSITION_BTC8`), and every unresolved cloid is reconciled against the venue before any order is placed. A partially written final journal line is ignored.
 
+A polled maker position older than `MAKER_POSITION_MAX_AGE_MS` (default 15000), or older than the last accepted one, is rejected like a failed poll: the hedger holds (`hold:maker-position-unknown`) until a fresh one arrives. The limit price is rounded toward the mark so it never leaves `PRICE_BAND_BPS`; if the rounded price no longer crosses the mark the tick holds (`hold:price-band`).
+
 Fills for any market other than the configured one are ignored. Duplicate fill ids are applied once.
 
 ## Margin bands

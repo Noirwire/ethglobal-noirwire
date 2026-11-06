@@ -38,9 +38,11 @@ export function parseTapeResponse(body: unknown): TapeFill[] {
   return tapeResponse.parse(body).fills;
 }
 
-export function parsePositionResponse(body: unknown): { market: string; position8: bigint } {
+export function parsePositionResponse(body: unknown): { market: string; position8: bigint; observedAtMs: number } {
   const parsed = positionResponse.parse(body);
-  return { market: parsed.market, position8: toBaseUnits(parsed.size, BTC_DECIMALS) };
+  const observedAtMs = Date.parse(parsed.observedAt);
+  if (Number.isNaN(observedAtMs)) throw new Error(`maker position observedAt is not a timestamp: ${parsed.observedAt}`);
+  return { market: parsed.market, position8: toBaseUnits(parsed.size, BTC_DECIMALS), observedAtMs };
 }
 
 export function mapTapeFill(row: TapeFill, houseMakerTag: string | undefined, market: string): MakerFill | null {
@@ -100,7 +102,7 @@ export class TapeFillSource implements FillSource {
       throw new Error(`maker position is for ${position.market}, expected ${this.options.market}`);
     }
     const { fills, cursor } = mapTapeBatch(tape, this.options.market, this.options.houseMakerTag, this.cursor);
-    return { fills, cursor, makerPosition8: position.position8 };
+    return { fills, cursor, makerPosition8: position.position8, makerPositionObservedAtMs: position.observedAtMs };
   }
 
   async commit(cursor: string): Promise<void> {

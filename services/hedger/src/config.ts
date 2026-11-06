@@ -28,6 +28,7 @@ const envSchema = z.object({
   CONFIRM_MAX_AGE_MS: z.coerce.number().int().positive().default(30_000),
   BLIND_AFTER_MS: z.coerce.number().int().positive().default(15_000),
   UNKNOWN_ORDER_GRACE_MS: z.coerce.number().int().nonnegative().default(10_000),
+  MAKER_POSITION_MAX_AGE_MS: z.coerce.number().int().positive().default(15_000),
   TICK_MS: z.coerce.number().int().positive().default(2_000),
   HEDGE_LEVERAGE_TARGET: z.coerce.number().min(3).max(5).default(4),
   INITIAL_MAKER_POSITION_BTC8: signedBtc8.default("0"),
@@ -58,6 +59,7 @@ export type HedgerConfig = {
   confirmMaxAgeMs: number;
   blindAfterMs: number;
   unknownOrderGraceMs: number;
+  makerPositionMaxAgeMs: number;
   tickMs: number;
   leverageTarget: number;
   initialMakerPosition8: bigint;
@@ -116,6 +118,7 @@ export function parseConfig(env: Record<string, string | undefined>): HedgerConf
     confirmMaxAgeMs: raw.CONFIRM_MAX_AGE_MS,
     blindAfterMs: raw.BLIND_AFTER_MS,
     unknownOrderGraceMs: raw.UNKNOWN_ORDER_GRACE_MS,
+    makerPositionMaxAgeMs: raw.MAKER_POSITION_MAX_AGE_MS,
     tickMs: raw.TICK_MS,
     leverageTarget: raw.HEDGE_LEVERAGE_TARGET,
     initialMakerPosition8: BigInt(raw.INITIAL_MAKER_POSITION_BTC8),
