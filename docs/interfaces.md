@@ -48,7 +48,7 @@ where `body` is `abi.encode(NavReport)` for kind 1 and `abi.encode(TopUpIntent)`
 struct NavReport {
     uint8 version;          // 1
     uint64 closeId;         // epoch being closed
-    uint64 observedAt;      // unix seconds, oldest source timestamp
+    uint64 observedAt;      // unix seconds, oldest source timestamp; must be after the previous settlement
     uint256 totalAssets;    // USDC 6 dp, all legs incl. in-transit
     uint256 totalLiabilities; // USDC 6 dp, pending redemptions excluded (the vault tracks those)
     bytes32 sourcesHash;    // see "Sources hash" below
@@ -96,12 +96,12 @@ The Solana burn sets `mintRecipient` and `destinationCaller` to the Arc `HookExe
 abi.encode(
     uint8 version,          // 1
     address beneficiary,    // Arc address that receives the vault position
-    bytes32 solanaDepositor,// Solana pubkey of the depositor, for the record
+    bytes32 solanaDepositor,// Solana pubkey of the depositor; must equal the burn message sender
     uint64 deadline         // unix seconds; after it the deposit becomes claimable instead
 )
 ```
 
-CCTP mints and carries `hookData`; it does not execute it. Execution is `HookExecutor.relay(message, attestation)`: it calls `MessageTransmitterV2.receiveMessage` itself, decodes the attested burn message and hook, measures the net minted amount by balance delta, and calls the vault. If the vault call fails or the deadline has passed, the net minted USDC is held as a claim for `beneficiary`.
+CCTP mints and carries `hookData`; it does not execute it. Execution is `HookExecutor.relay(message, attestation)`: it calls `MessageTransmitterV2.receiveMessage` itself, decodes the attested burn message and hook, measures the net minted amount by balance delta, and calls the vault. If the vault call fails or the deadline has passed, the net minted USDC is held as a claim for `beneficiary`. Hook data that does not decode, or whose `solanaDepositor` differs from the attested burn's `messageSender`, is quarantined for the owner to release.
 
 Transfer states (`TransferState`): `requested`, `burned`, `attested`, `minted`, then by route either `hook-executed` and `vault-credited` (or `claimable`) for deposits into the vault, or `forwarded` and `credited` for HyperCore. `credited` on HyperCore is set only after the Hyperliquid account balance is observed to rise. A transfer is keyed by its CCTP message hash once attested, so a retry never counts twice.
 
