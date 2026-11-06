@@ -6,13 +6,13 @@ Chainlink CRE workflow `nav-attestor`. Every five minutes it reads each leg of t
 
 | Leg | Source | Trust label |
 | --- | --- | --- |
-| `arc-vault-cash` | EVM read on `arc-testnet`: `IERC20(usdc).balanceOf(shareVault)` | `onchain` |
+| `arc-vault-cash` | EVM read on `arc-testnet`: `ShareVault.navCash()`, the vault's accounted USDC minus pending deposits and assets reserved for redemptions | `onchain` |
 | `solana-maker` | HTTP GET `{maker.apiUrl}/v1/maker/equity` returning `{"equityUsdc6","observedAt"}` | `operator-supplied` |
 | `hyperliquid` | HTTP POST `{hyperliquid.infoUrl}` `{"type":"clearinghouseState","user":...}`; `marginSummary.accountValue`, `totalMarginUsed`, `time` | `venue-api` |
 | `aqua` | HTTP GET `{aqua.apiUrl}/v1/aqua/inventory` returning `{"usdc6","wbtcE8","observedAt"}`, WBTC valued with the Chainlink BTC/USD feed (EVM read) | `operator-supplied` |
 | `in-transit` | HTTP GET `{bridge.apiUrl}/v1/transfers?state=in-flight`, array of the shared `BridgeTransfer` | `operator-supplied` |
 
-Also read from the vault: `currentEpoch()` (the `closeId`) and `totalSupply()` (for the share price). Both ABI fragments are in config (`arc.epochAbiFragment`, `arc.supplyAbiFragment`), as is the block tag (`readAt`: `finalized` or `latest`).
+Also read from the vault: `currentEpoch()` (the `closeId`) and `totalSupply()` (for the share price). The block tag is in config (`readAt`: `finalized` or `latest`). The vault settles only a report whose `observedAt` is later than its previous settlement.
 
 HTTP results go through CRE consensus: numeric fields use `median`, the transfer list uses `identical`. Every node must see the same transfer list or the run fails.
 

@@ -11,11 +11,8 @@ export const configSchema = z.object({
   arc: z.object({
     chainName: z.string(),
     shareVault: evmAddress,
-    usdc: evmAddress,
     navReceiver: evmAddress,
     gasLimit: z.string().regex(/^\d+$/),
-    epochAbiFragment: z.string(),
-    supplyAbiFragment: z.string(),
   }),
   hyperliquid: z.object({ infoUrl: httpUrl, user: evmAddress }),
   maker: z.object({ apiUrl: httpUrl, account: z.string().min(1) }),

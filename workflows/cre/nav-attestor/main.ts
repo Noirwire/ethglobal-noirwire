@@ -44,7 +44,11 @@ interface TransfersFlat {
   json: string;
 }
 
-const ERC20_BALANCE = parseAbi(["function balanceOf(address) view returns (uint256)"]);
+const SHARE_VAULT = parseAbi([
+  "function navCash() view returns (uint256)",
+  "function currentEpoch() view returns (uint64)",
+  "function totalSupply() view returns (uint256)",
+]);
 const FEED = parseAbi([
   "function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)",
 ]);
@@ -86,11 +90,6 @@ const fetchTransfers = (requester: HTTPSendRequester, url: string): TransfersFla
   const transfers = parseTransfers(bodyText(response.body)).sort((a, b) => (a.transferId < b.transferId ? -1 : 1));
   return { json: JSON.stringify(transfers) };
 };
-
-function functionNameOf(abi: ReturnType<typeof parseAbi>): string {
-  const entry = abi[0] as { name: string };
-  return entry.name;
-}
 
 function evmClientFor(chainName: string): EVMClient {
   const network = getNetwork({ chainFamily: "evm", chainSelectorName: chainName });
@@ -139,11 +138,10 @@ const onCron = (runtime: Runtime<Config>): string => {
   const http = new HTTPClient();
 
   const arc = evmClientFor(config.arc.chainName);
-  const vaultUsdc = readContract<bigint>(runtime, arc, config.arc.usdc, ERC20_BALANCE, "balanceOf", [config.arc.shareVault]);
-  const epochAbi = parseAbi([config.arc.epochAbiFragment]);
-  const closeId = Number(readContract<bigint>(runtime, arc, config.arc.shareVault, epochAbi, functionNameOf(epochAbi)));
-  const supplyAbi = parseAbi([config.arc.supplyAbiFragment]);
-  const shareSupply = readContract<bigint>(runtime, arc, config.arc.shareVault, supplyAbi, functionNameOf(supplyAbi));
+  const vault = config.arc.shareVault;
+  const vaultUsdc = readContract<bigint>(runtime, arc, vault, SHARE_VAULT, "navCash");
+  const closeId = Number(readContract<bigint>(runtime, arc, vault, SHARE_VAULT, "currentEpoch"));
+  const shareSupply = readContract<bigint>(runtime, arc, vault, SHARE_VAULT, "totalSupply");
 
   const feedClient = evmClientFor(config.aqua.feedChainName);
   const round = readContract<readonly [bigint, bigint, bigint, bigint, bigint]>(

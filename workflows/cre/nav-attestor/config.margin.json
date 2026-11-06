@@ -6,11 +6,8 @@
   "arc": {
     "chainName": "arc-testnet",
     "shareVault": "0x00000000000000000000000000000000000fa017",
-    "usdc": "0x3600000000000000000000000000000000000000",
     "navReceiver": "0x00000000000000000000000000000000000a11ce",
-    "gasLimit": "500000",
-    "epochAbiFragment": "function currentEpoch() view returns (uint64)",
-    "supplyAbiFragment": "function totalSupply() view returns (uint256)"
+    "gasLimit": "500000"
   },
   "hyperliquid": {
     "infoUrl": "http://127.0.0.1:8787/info",
