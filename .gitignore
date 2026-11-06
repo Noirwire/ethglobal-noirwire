@@ -18,6 +18,9 @@ coverage
 # Turbo
 .turbo
 
+# Local stack PIDs and logs (make up)
+.run/
+
 # Vercel
 .vercel
 

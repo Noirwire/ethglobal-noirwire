@@ -2,6 +2,25 @@
 
 This Turborepo starter is maintained by the Turborepo core team.
 
+## Local stack
+
+Everything local is driven from the root `Makefile`. Run `make help` for the full list.
+
+```sh
+make install       # pnpm install
+make check         # types, lint, forge fmt and forge test (aqua fork tests only if the fork is up)
+make chains-up     # anvil arc-local :8545 (chain 31337) and an Arbitrum One fork :8546 (chain 42161)
+make deploy-local  # vault contracts onto arc-local, writes contracts/vault/deployments/local.json
+make up            # chains, deploy, hedger, bridge, aqua taker bot and web
+make status        # recorded PIDs and which ports answer
+make demo          # offline end to end: hedger mock, bridge local e2e, aqua fork demo, CRE compile (PASS/FAIL each)
+make down          # stops exactly the PIDs recorded under .run/
+```
+
+Background processes keep a PID file and log under `.run/` (gitignored). If a node already listens on 8545 or 8546 with the right chain id, `chains-up` reuses it and `down` leaves it alone. Override ports with `ARC_PORT`, `FORK_PORT`, `WEB_PORT`; set `ARBITRUM_RPC_URL` (and optionally `FORK_BLOCK`) for the fork.
+
+Targets that touch a public testnet (`deploy-arc-testnet`, `hedger-testnet-up`, `bridge-testnet-up`) refuse to run unless `CONFIRM=testnet` is set. `make solana-up` runs the bridge's cloned CCTP validator test (read-only against devnet), and `make cre-simulate` runs the CRE workflow simulation.
+
 ## Using this example
 
 Run the following command:
