@@ -14,20 +14,23 @@ export type StepRecord = {
   status: StepStatus;
   amount: string;
   fromBlock?: string;
+  nonce?: string;
   txHash?: string;
   reason?: string;
 };
 
-export type StepKey = "release" | "acknowledge";
+export type StepKey = "release" | "acknowledge" | "withdraw";
 
 export type TransferMeta = {
   resumeState?: TransferState;
   burnAttempted?: boolean;
+  burnStartedAt?: string;
   baselineBalance?: string;
   createdAt: string;
   intentId?: string;
   release?: StepRecord;
   acknowledge?: StepRecord;
+  withdraw?: StepRecord;
   refusedReason?: string;
 };
 

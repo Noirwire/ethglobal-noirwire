@@ -97,7 +97,8 @@ server.listen(port, () => {
 });
 
 const intentFile = env("INTENT_FILE");
-const watcher = intentFile ? new IntentFileWatcher(intentFile, executor) : undefined;
+if (intentFile && network !== "local") console.error("INTENT_FILE is ignored outside local mode: testnet intents come only from the onchain NavReceiver and the authenticated API");
+const watcher = intentFile && network === "local" ? new IntentFileWatcher(intentFile, executor) : undefined;
 setInterval(() => {
   watcher?.poll();
   void executor.tick();

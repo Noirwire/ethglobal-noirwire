@@ -1,22 +1,30 @@
 import { readFileSync } from "node:fs";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { NETWORKS, type TransferRoute } from "@noirwire/shared";
-import { bytesToHex, createPublicClient, createWalletClient, defineChain, http, type Hex } from "viem";
+import { bytesToHex, createPublicClient, createWalletClient, defineChain, erc20Abi, http, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { ARC_TESTNET_USDC, CIRCLE_TESTNET, SOLANA_DEVNET_USDC_MINT } from "./addresses.ts";
+import { ARC_TESTNET_USDC, CIRCLE_TESTNET, CORE_DEPOSIT_WALLET_TESTNET, SOLANA_DEVNET_USDC_MINT } from "./addresses.ts";
+import { HypercoreArcAdapter, IrisReturnFees, ViemHyperEvmBurns } from "./hypercore-arc.ts";
+import { DEFAULT_RETURN_GAS_LIMIT, HttpHyperliquidExchange } from "./hyperliquid-withdraw.ts";
 import { ArcHypercoreAdapter, ArcSolanaAdapter, SolanaArcAdapter } from "./adapters.ts";
 import { EvmDriver } from "./evm.ts";
 import type { ExecutorConfig, RouteAdapter, TreasuryExecutor } from "./executor.ts";
 import { VAULT_HOOK_DEADLINE_SECONDS } from "./hooks.ts";
-import { HyperliquidInfoReader } from "./hyperliquid.ts";
+import { DEFAULT_LEDGER_MATCH, HyperliquidInfoReader, HyperliquidLedgerReader, type LedgerMatchConfig } from "./hyperliquid.ts";
 import { DurableCursor, OnchainIntentWatcher, ViemIntentLogReader, watcherSettings } from "./intent-watcher.ts";
-import type { IrisClient } from "./iris.ts";
+import { IRIS_SANDBOX_URL, type IrisClient } from "./iris.ts";
 import { VaultTreasury, ViemVaultChain } from "./vault.ts";
 import { SolanaDriver } from "./solana.ts";
 import { ConnectionReader, SolanaDeposits, type SolanaDepositApi } from "./solana-deposit.ts";
 
 const DEFAULT_HYPERCORE_MAX_FEE = "300000";
 const DEFAULT_SOLANA_MAX_FEE = "100000";
+const DEFAULT_RETURN_MAX_FEE = "300000";
+
+function listEnv(value: string | undefined): string[] | undefined {
+  const items = value?.split(",").map((item) => item.trim()).filter(Boolean);
+  return items && items.length > 0 ? items : undefined;
+}
 
 export function wireTestnet(
   env: (name: string) => string | undefined,
@@ -72,16 +80,59 @@ export function wireTestnet(
     };
   }
 
-  const hyperCoreRecipient = env("HYPERCORE_RECIPIENT") as Hex | undefined;
+  const accountKey = env("HYPERCORE_ACCOUNT_KEY");
+  const hyperCoreAccount = accountKey ? privateKeyToAccount(accountKey as Hex) : undefined;
+  const hyperCoreRecipient = (env("HYPERCORE_RECIPIENT") as Hex | undefined) ?? hyperCoreAccount?.address;
+  const coreDepositWallet = (env("CORE_DEPOSIT_WALLET") as Hex | undefined) ?? CORE_DEPOSIT_WALLET_TESTNET;
+  const ledger = new HyperliquidLedgerReader(NETWORKS.hyperliquidTestnetApi.infoUrl);
+  const match: LedgerMatchConfig = {
+    debitTypes: listEnv(env("HYPERCORE_DEBIT_LEDGER_TYPES")) ?? DEFAULT_LEDGER_MATCH.debitTypes,
+    creditTypes: listEnv(env("HYPERCORE_CREDIT_LEDGER_TYPES")) ?? DEFAULT_LEDGER_MATCH.creditTypes,
+    creditCounterparty: env("HYPERCORE_CREDIT_COUNTERPARTY") ?? coreDepositWallet,
+    amountTolerance: BigInt(env("HYPERCORE_AMOUNT_TOLERANCE") ?? DEFAULT_LEDGER_MATCH.amountTolerance),
+  };
   if (hyperCoreRecipient) {
     adapters["arc-hypercore"] = new ArcHypercoreAdapter(evm, iris, {
       forwarder: CIRCLE_TESTNET.hyperEvmCctpForwarder,
       recipient: hyperCoreRecipient,
       reader: new HyperliquidInfoReader(NETWORKS.hyperliquidTestnetApi.infoUrl),
+      ledger,
+      match,
     });
     config.routes["arc-hypercore"] = {
       destination: hyperCoreRecipient,
       maxFee: BigInt(env("HYPERCORE_MAX_FEE") ?? DEFAULT_HYPERCORE_MAX_FEE),
+    };
+  }
+  if (hyperCoreAccount && shareVault) {
+    const hyperEvm = createPublicClient({
+      chain: defineChain({
+        id: NETWORKS.hyperEvmTestnet.chainId,
+        name: "HyperEVM Testnet",
+        nativeCurrency: { name: "HYPE", symbol: "HYPE", decimals: 18 },
+        rpcUrls: { default: { http: [env("HYPEREVM_RPC_URL") ?? NETWORKS.hyperEvmTestnet.rpcUrl] } },
+      }),
+      transport: http(),
+    });
+    adapters["hypercore-arc"] = new HypercoreArcAdapter({
+      account: hyperCoreAccount,
+      vault: shareVault,
+      coreDepositWallet,
+      hyperliquidChain: "Testnet",
+      sourceDex: env("HYPERCORE_SOURCE_DEX") === "spot" ? "spot" : "",
+      gasLimit: Number(env("HYPERCORE_RETURN_GAS_LIMIT") ?? DEFAULT_RETURN_GAS_LIMIT),
+      match,
+      exchange: new HttpHyperliquidExchange(NETWORKS.hyperliquidTestnetApi.exchangeUrl),
+      ledger,
+      burns: new ViemHyperEvmBurns(hyperEvm, CIRCLE_TESTNET.tokenMessengerV2),
+      fees: new IrisReturnFees(env("IRIS_URL") ?? IRIS_SANDBOX_URL),
+      iris,
+      vaultBalance: () =>
+        evm.publicClient.readContract({ address: evm.addresses.usdc, abi: erc20Abi, functionName: "balanceOf", args: [shareVault] }),
+    });
+    config.routes["hypercore-arc"] = {
+      destination: shareVault,
+      maxFee: BigInt(env("HYPERCORE_RETURN_MAX_FEE") ?? DEFAULT_RETURN_MAX_FEE),
     };
   }
 

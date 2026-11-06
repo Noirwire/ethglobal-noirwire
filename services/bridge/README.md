@@ -17,7 +17,15 @@ BRIDGE_SOLANA_CLONE=1 pnpm --filter @noirwire/bridge exec vitest run test/solana
 | `solana-arc` | Solana (5) | Arc (26) | `depositForBurnWithHook`, mintRecipient and destinationCaller are the Arc `HookExecutor`; we call `HookExecutor.relay(message, attestation)`. Result is `vault-credited` or `claimable`. |
 | `arc-solana` | Arc (26) | Solana (5) | EVM `depositForBurn`, then `receive_message` on Solana. Credited when the Solana mint confirms. |
 | `arc-hypercore` | Arc (26) | HyperEVM (19) then HyperCore | Burn to the Circle `CctpForwarder` with the `cctp-forward` hook; Circle's forwarding service mints and forwards. `forwarded` is set from the Iris `forwardState`, `credited` only after a Hyperliquid info API read shows the balance rose by the net amount. |
-| `hypercore-arc` | HyperCore | Arc | Not implemented (needs a Hyperliquid withdrawal). Intents on it are rejected, or recorded as `route not available` when they come from the chain. |
+| `hypercore-arc` | HyperCore | Arc | One user-signed `sendToEvmWithData` action (`src/hyperliquid-withdraw.ts`, `src/hypercore-arc.ts`) POSTed to the Hyperliquid exchange with `data` `0x`, so Circle's forwarding service mints on Arc to the `ShareVault`; the generic return step then calls `acknowledgeReturn`. Needs `HYPERCORE_ACCOUNT_KEY` and `SHARE_VAULT`. |
+
+`hypercore-arc` signs the EIP-712 digest directly because viem rejects the primary type name `HyperliquidTransaction:SendToEvmWithData` (it contains a colon). Before the POST the nonce is journaled durably (`withdraw` step: `armed`, then `sent`, then `done` once the HyperEVM `DepositForBurn` log is found). On restart an `armed` record is looked up in the HyperCore ledger first; if absent the same nonce is sent again, which Hyperliquid de-duplicates, and a new nonce is never chosen automatically. An error answer to a re-sent action stays pending.
+
+Unconfirmed until one live run: the forwarding fee quote (Iris `forwardFee.med`), the ledger `type` of the debit (`HYPERCORE_DEBIT_LEDGER_TYPES`) and of the credit (`HYPERCORE_CREDIT_LEDGER_TYPES`, default `spotTransfer` from `HYPERCORE_CREDIT_COUNTERPARTY`, default the CoreDepositWallet), the amount tolerance (`HYPERCORE_AMOUNT_TOLERANCE`, default 1 USDC), the gas limit (`HYPERCORE_RETURN_GAS_LIMIT`, 200000), the source dex (`HYPERCORE_SOURCE_DEX`, `spot` or perps by default), and the `DepositForBurn` mint recipient (the bridge accepts the vault in `mintRecipient` or in `hookData`). `HYPERCORE_RECIPIENT` defaults to the address of `HYPERCORE_ACCOUNT_KEY`. Add the `ShareVault` to `DESTINATION_ALLOWLIST`.
+
+`arc-hypercore` credit is confirmed by a matching ledger entry; an `accountValue` rise alone only changes the pending reason. This is pending one live confirmation of the ledger type.
+
+Routes that release from the vault (`arc-hypercore` while `SHARE_VAULT` is set) accept intents only from the onchain watcher: `POST /v1/intents` answers 403 and `INTENT_FILE` lines are skipped. `INTENT_FILE` is read in local mode only.
 
 ## Automatic rebalancing
 

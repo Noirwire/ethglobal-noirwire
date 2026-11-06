@@ -7,17 +7,24 @@ import type { StepLog, VaultPort } from "./vault.ts";
 
 export const HYPERCORE_MAX_PER_TRANSFER = 1_000_000_000n;
 const RELEASED_FROM_VAULT: ReadonlySet<TransferRoute> = new Set(["arc-hypercore"]);
+const SERIALIZED_ROUTES: ReadonlySet<TransferRoute> = new Set(["arc-hypercore", "hypercore-arc"]);
 
 export type DeliverResult =
   | { status: "done"; state: "minted" | "hook-executed" | "forwarded"; tx?: string }
   | { status: "pending"; reason: string };
 
+export type AdapterContext = { journal: StepLog };
+
 export interface RouteAdapter {
-  burn(transfer: BridgeTransfer): Promise<{ burnTx: string }>;
+  readonly idempotentBurn?: boolean;
+  preflight?(transfer: BridgeTransfer): Promise<string | undefined>;
+  burn(transfer: BridgeTransfer, context: AdapterContext): Promise<{ burnTx: string }>;
+  attestationTxHash?(transfer: BridgeTransfer, context: AdapterContext): Promise<string>;
   messageFor(transfer: BridgeTransfer): Promise<Hex | undefined>;
-  deliver(transfer: BridgeTransfer, message: Hex, attestation: Hex): Promise<DeliverResult>;
+  deliver(transfer: BridgeTransfer, message: Hex, attestation: Hex, context: AdapterContext): Promise<DeliverResult>;
   hookOutcome?(transfer: BridgeTransfer): Promise<"vault-credited" | "claimable">;
   destinationBalance?(transfer: BridgeTransfer): Promise<bigint>;
+  creditedInLedger?(transfer: BridgeTransfer, expected: bigint, since: number): Promise<boolean>;
 }
 
 export type TransferView = BridgeTransfer & { released?: boolean };
@@ -42,6 +49,8 @@ export type ExecutorConfig = {
 
 export class IntentRejected extends Error {}
 export class RouteUnavailable extends IntentRejected {}
+export class IntentForbidden extends Error {}
+export class BurnRefused extends Error {}
 
 const DOMAINS: Record<TransferRoute, [number, number]> = {
   "arc-solana": [CCTP_DOMAINS.arc, CCTP_DOMAINS.solana],
@@ -63,6 +72,13 @@ export class TreasuryExecutor {
     private readonly config: ExecutorConfig,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  submitExternal(intent: TopUpIntent): BridgeTransfer[] {
+    if (this.config.vault !== undefined && RELEASED_FROM_VAULT.has(intent.route)) {
+      throw new IntentForbidden(`route ${intent.route} releases funds from the vault and accepts intents only from the onchain NavReceiver`);
+    }
+    return this.submit(intent);
+  }
 
   submit(intent: TopUpIntent): BridgeTransfer[] {
     const existing = this.store.forIntent(intent.intentId);
@@ -235,7 +251,7 @@ export class TreasuryExecutor {
       case "attested":
         return this.deliver(transfer, adapter);
       case "minted": {
-        if (this.returnsToVault(transfer)) return this.acknowledgeReturn(transfer);
+        if (this.returnsToVault(transfer)) return this.acknowledgeReturn(transfer, adapter);
         if (transfer.route !== "arc-solana") return { changed: false, pending: "minted with no next step on this route" };
         this.store.transition(id, "credited", { creditTx: transfer.mintTx });
         return { changed: true };
@@ -255,16 +271,21 @@ export class TreasuryExecutor {
 
   private async burn(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
     const id = transfer.transferId;
-    if (!this.store.canBurn(id)) {
+    const resumable = adapter.idempotentBurn === true;
+    if (!resumable && !this.store.canBurn(id)) {
       return { changed: false, pending: "burn outcome unknown, verify on chain before retrying" };
     }
-    if (transfer.route === "arc-hypercore" && adapter.destinationBalance) {
+    const concern = adapter.preflight ? await adapter.preflight(transfer) : undefined;
+    if (concern) return { changed: false, pending: concern };
+    if (SERIALIZED_ROUTES.has(transfer.route) && adapter.destinationBalance) {
       const ahead = this.store
         .inFlight()
-        .some((t) => t.route === "arc-hypercore" && t.transferId !== id && t.state !== "requested");
-      if (ahead) return { changed: false, pending: "waiting for the previous HyperCore transfer to credit" };
-      const baseline = await adapter.destinationBalance(transfer);
-      this.store.setMeta(id, { baselineBalance: baseline.toString() });
+        .some((t) => t.route === transfer.route && t.transferId !== id && t.state !== "requested");
+      if (ahead) return { changed: false, pending: "waiting for the previous HyperCore transfer to settle" };
+      if (this.store.meta(id)?.baselineBalance === undefined) {
+        const baseline = await adapter.destinationBalance(transfer);
+        this.store.setMeta(id, { baselineBalance: baseline.toString(), burnStartedAt: this.now().toISOString() });
+      }
     }
     const vault = this.config.vault;
     if (vault && this.releasesFromVault(transfer)) {
@@ -281,10 +302,24 @@ export class TreasuryExecutor {
         return { changed: true };
       }
     }
-    this.store.beginBurn(id);
-    const { burnTx } = await adapter.burn(transfer);
-    this.store.transition(id, "burned", { burnTx });
+    if (!resumable) this.store.beginBurn(id);
+    try {
+      const { burnTx } = await adapter.burn(transfer, this.context(id));
+      this.store.transition(id, "burned", { burnTx });
+    } catch (error) {
+      if (!(error instanceof BurnRefused)) throw error;
+      console.error(`transfer ${id} refused: ${error.message}`);
+      this.store.refuse(id, error.message);
+    }
     return { changed: true };
+  }
+
+  private context(transferId: string): AdapterContext {
+    return { journal: this.stepLog(transferId, "withdraw") };
+  }
+
+  private burnLookupTx(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<string> | string {
+    return adapter.attestationTxHash ? adapter.attestationTxHash(transfer, this.context(transfer.transferId)) : (transfer.burnTx as string);
   }
 
   private stepLog(transferId: string, key: StepKey): StepLog {
@@ -300,10 +335,17 @@ export class TreasuryExecutor {
     return vault !== undefined && destination !== undefined && destination.toLowerCase() === vault.vault.toLowerCase();
   }
 
-  private async acknowledgeReturn(transfer: BridgeTransfer): Promise<StepResult> {
+  private async acknowledgeReturn(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
     const vault = this.config.vault as VaultPort;
     const amount =
       transfer.netMinted !== undefined ? BigInt(transfer.netMinted) : BigInt(transfer.grossAmount) - BigInt(transfer.maxFee);
+    const baseline = this.store.meta(transfer.transferId)?.baselineBalance;
+    if (adapter.destinationBalance && baseline !== undefined) {
+      const risen = (await adapter.destinationBalance(transfer)) - BigInt(baseline);
+      if (risen < amount) {
+        return { changed: false, pending: `minted, but the vault USDC balance rose by ${risen} of the expected ${amount} base units` };
+      }
+    }
     const acknowledged = await vault.acknowledge(
       this.stepLog(transfer.transferId, "acknowledge"),
       amount,
@@ -320,7 +362,7 @@ export class TreasuryExecutor {
     const message = await adapter.messageFor(transfer);
     const result = await this.attester.fetchAttestation({
       sourceDomain: transfer.sourceDomain,
-      txHash: transfer.burnTx as string,
+      txHash: await this.burnLookupTx(transfer, adapter),
       message,
     });
     if (result.status !== "complete" || !result.message || !result.attestation) {
@@ -339,17 +381,17 @@ export class TreasuryExecutor {
   }
 
   private async deliver(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
-    const message = (await adapter.messageFor(transfer)) ?? (await this.messageFromAttester(transfer));
-    const delivered = await adapter.deliver(transfer, message, transfer.attestation as Hex);
+    const message = (await adapter.messageFor(transfer)) ?? (await this.messageFromAttester(transfer, adapter));
+    const delivered = await adapter.deliver(transfer, message, transfer.attestation as Hex, this.context(transfer.transferId));
     if (delivered.status === "pending") return { changed: false, pending: delivered.reason };
     this.store.transition(transfer.transferId, delivered.state, { mintTx: delivered.tx });
     return { changed: true };
   }
 
-  private async messageFromAttester(transfer: BridgeTransfer): Promise<Hex> {
+  private async messageFromAttester(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<Hex> {
     const result = await this.attester.fetchAttestation({
       sourceDomain: transfer.sourceDomain,
-      txHash: transfer.burnTx as string,
+      txHash: await this.burnLookupTx(transfer, adapter),
     });
     if (!result.message) throw new Error("message bytes unavailable");
     return result.message;
@@ -361,6 +403,21 @@ export class TreasuryExecutor {
     if (baseline === undefined) return { changed: false, pending: "no baseline balance recorded" };
     const expected =
       transfer.netMinted !== undefined ? BigInt(transfer.netMinted) : BigInt(transfer.grossAmount) - BigInt(transfer.maxFee);
+    if (adapter.creditedInLedger) {
+      const since = Date.parse(this.store.meta(transfer.transferId)?.burnStartedAt ?? "");
+      if (Number.isNaN(since)) return { changed: false, pending: "no burn start time recorded" };
+      if (await adapter.creditedInLedger(transfer, expected, since)) {
+        this.store.transition(transfer.transferId, "credited");
+        return { changed: true };
+      }
+      const risen = (await adapter.destinationBalance(transfer)) - BigInt(baseline) >= expected;
+      return {
+        changed: false,
+        pending: risen
+          ? "forwarded, the account value rose but no HyperCore ledger entry matches the credit yet"
+          : "forwarded, no HyperCore ledger entry matches the credit yet",
+      };
+    }
     const balance = await adapter.destinationBalance(transfer);
     if (balance - BigInt(baseline) < expected) {
       return { changed: false, pending: "forwarded, HyperCore balance has not risen yet" };

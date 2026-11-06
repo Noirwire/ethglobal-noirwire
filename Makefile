@@ -175,7 +175,7 @@ hedger-testnet-up: _require-testnet ## TESTNET (CONFIRM=testnet): hedger against
 	$(call spawn,hedger-testnet,$(ROOT)/services/hedger,$(KEYS) run -e HL_AGENT_PRIVATE_KEY=hl-agent -- env HEDGER_MODE=testnet FILL_SOURCE=tape HEDGE_ENABLED=$${HEDGE_ENABLED:-0} node_modules/.bin/tsx src/main.ts)
 
 bridge-testnet-up: _require-testnet ## TESTNET (CONFIRM=testnet): bridge against Arc testnet and Solana devnet, keys from the Keychain (operator, solana-operator); needs HOOK_EXECUTOR in the environment
-	$(call spawn,bridge-testnet,$(ROOT)/services/bridge,$(KEYS) run -e ARC_OPERATOR_KEY=operator -f SOLANA_KEYPAIR_PATH=solana-operator -- node_modules/.bin/tsx src/main.ts)
+	$(call spawn,bridge-testnet,$(ROOT)/services/bridge,$(KEYS) run -e ARC_OPERATOR_KEY=operator -e HYPERCORE_ACCOUNT_KEY=operator -f SOLANA_KEYPAIR_PATH=solana-operator -- node_modules/.bin/tsx src/main.ts)
 
 keys-init: ## Generate a fresh key per role (deployer operator relayer hl-agent taker solana-operator solana-depositor) into the login Keychain; prints role and address only; FORCE=1 replaces. The key is on security's argv for a moment
 	$(KEYS) init
