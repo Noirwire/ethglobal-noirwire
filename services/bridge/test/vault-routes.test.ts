@@ -7,7 +7,7 @@ import { SolanaArcAdapter } from "../src/adapters.ts";
 import { IntentForbidden, TreasuryExecutor, type ExecutorConfig } from "../src/executor.ts";
 import { LocalAttester } from "../src/iris.ts";
 import { createBridgeServer, IntentFileWatcher } from "../src/server.ts";
-import type { SolanaDriver } from "../src/solana.ts";
+import { messageAccountFor, type SolanaDriver } from "../src/solana.ts";
 import { TransferStore } from "../src/transfers.ts";
 import { VaultTreasury } from "../src/vault.ts";
 import { FakeVaultChain } from "./fake-vault.ts";
@@ -94,8 +94,26 @@ describe("Solana burn amount", () => {
   it("burns exactly the transfer amount even when the account holds more", async () => {
     const { adapter, burns } = solanaRig(90_000_000n);
     expect(await adapter.preflight(transfer)).toBeUndefined();
-    await adapter.burn(transfer);
+    await adapter.burn(transfer, { journal: { read: () => undefined, write: () => {} } });
     expect(burns).toEqual([7_000_000n]);
+  });
+
+  it("records the deterministic message account in the journal before broadcasting", async () => {
+    const written: unknown[] = [];
+    const account = messageAccountFor(transfer.transferId).publicKey;
+    const solana = {
+      burn: async (params: { transferId: string }, before: (key: PublicKey) => void) => {
+        expect(messageAccountFor(params.transferId).publicKey.equals(account)).toBe(true);
+        before(account);
+        expect(written).toHaveLength(1);
+        return { signature: "sig", messageSentEventData: account };
+      },
+    } as unknown as SolanaDriver;
+    const journal = { read: () => undefined, write: (record: unknown) => void written.push(record) };
+    await new SolanaArcAdapter(solana, {} as never, OPTIONS).burn(transfer, { journal });
+    expect(written).toEqual([{ status: "armed", amount: "7000000", messageAccount: account.toBase58() }]);
+    expect(messageAccountFor(transfer.transferId).publicKey.equals(account)).toBe(true);
+    expect(messageAccountFor("t:1").publicKey.equals(account)).toBe(false);
   });
 
   it("refuses to burn when the account holds less than the amount", async () => {

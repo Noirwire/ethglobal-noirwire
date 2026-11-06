@@ -31,6 +31,12 @@ function listEnv(value: string | undefined): string[] | undefined {
   return items && items.length > 0 ? items : undefined;
 }
 
+export function assertSameHyperCoreAccount(recipient: string | undefined, signer: string | undefined): void {
+  if (recipient && signer && recipient.toLowerCase() !== signer.toLowerCase()) {
+    throw new Error("HYPERCORE_RECIPIENT must be the address of HYPERCORE_ACCOUNT_KEY, otherwise top-ups fund one account and returns sign for another");
+  }
+}
+
 export function wireTestnet(
   env: (name: string) => string | undefined,
   iris: IrisClient,
@@ -89,7 +95,9 @@ export function wireTestnet(
 
   const accountKey = env("HYPERCORE_ACCOUNT_KEY");
   const hyperCoreAccount = accountKey ? privateKeyToAccount(accountKey as Hex) : undefined;
-  const hyperCoreRecipient = (env("HYPERCORE_RECIPIENT") as Hex | undefined) ?? hyperCoreAccount?.address;
+  const configuredRecipient = env("HYPERCORE_RECIPIENT") as Hex | undefined;
+  assertSameHyperCoreAccount(configuredRecipient, hyperCoreAccount?.address);
+  const hyperCoreRecipient = configuredRecipient ?? hyperCoreAccount?.address;
   const coreDepositWallet = (env("CORE_DEPOSIT_WALLET") as Hex | undefined) ?? CORE_DEPOSIT_WALLET_TESTNET;
   const ledger = new HyperliquidLedgerReader(NETWORKS.hyperliquidTestnetApi.infoUrl);
   const match: LedgerMatchConfig = {

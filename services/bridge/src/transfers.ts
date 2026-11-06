@@ -16,6 +16,7 @@ export type StepRecord = {
   fromBlock?: string;
   nonce?: string;
   txHash?: string;
+  messageAccount?: string;
   reason?: string;
 };
 

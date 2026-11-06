@@ -153,6 +153,38 @@ describe("intent policy", () => {
   });
 });
 
+describe("an armed withdrawal", () => {
+  const armed = { status: "armed", amount: "500000000", nonce: "1" } as const;
+
+  it("is not failed as expired once its validUntil has passed", async () => {
+    const { executor, store, adapter, time } = setup();
+    const [transfer] = executor.submit(intent(), { validUntil: new Date(time.now().getTime() + 60_000).toISOString() });
+    store.setMeta(transfer!.transferId, { withdraw: armed });
+    time.advance(120_000);
+    await executor.advance(transfer!.transferId);
+    expect(adapter.burns).toBe(1);
+    expect(store.get(transfer!.transferId)!.state).not.toBe("failed");
+  });
+
+  it("still expires a request that was never armed", async () => {
+    const { executor, store, adapter, time } = setup();
+    const [transfer] = executor.submit(intent(), { validUntil: new Date(time.now().getTime() + 60_000).toISOString() });
+    time.advance(120_000);
+    await executor.advance(transfer!.transferId);
+    expect(adapter.burns).toBe(0);
+    expect(store.get(transfer!.transferId)!.state).toBe("failed");
+  });
+
+  it("holds the next HyperCore transfer while it is still requested", async () => {
+    const { executor, store, adapter } = setup();
+    const [first] = executor.submit(intent());
+    const [second] = executor.submit(intent({ intentId: intentId(2) }));
+    store.setMeta(first!.transferId, { withdraw: armed });
+    expect((await executor.step(second!.transferId)).pending).toMatch(/previous HyperCore transfer/);
+    expect(adapter.burns).toBe(0);
+  });
+});
+
 describe("advance re-entrancy", () => {
   it("ignores a second advance for a transfer that is already being advanced", async () => {
     const { executor, adapter, store } = setup();

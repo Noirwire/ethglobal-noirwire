@@ -1,13 +1,18 @@
 import { PublicKey } from "@solana/web3.js";
 import { CCTP_DOMAINS, type BridgeTransfer } from "@noirwire/shared";
 import { bytesToHex, type Hex } from "viem";
-import type { DeliverResult, RouteAdapter } from "./executor.ts";
+import type { AdapterContext, DeliverResult, RouteAdapter } from "./executor.ts";
+import type { StepLog } from "./vault.ts";
 import type { EvmDriver } from "./evm.ts";
 import { encodeForwardHookData, encodeVaultHookData, HYPERCORE_DEX } from "./hooks.ts";
 import { matchesCredit, type HyperCoreLedger, type HyperCoreReader, type LedgerMatchConfig } from "./hyperliquid.ts";
 import type { Attester } from "./iris.ts";
 import { addressToBytes32, decodeBurnBody, decodeMessage, FINALITY_FAST, ZERO_BYTES32 } from "./message.ts";
 import type { SolanaDriver } from "./solana.ts";
+
+function armMessageAccount(journal: StepLog, transfer: BridgeTransfer): (messageAccount: PublicKey) => void {
+  return (messageAccount) => journal.write({ status: "armed", amount: transfer.grossAmount, messageAccount: messageAccount.toBase58() }, true);
+}
 
 export type HypercoreForwardOptions = {
   forwarder: Hex;
@@ -23,7 +28,7 @@ abstract class HypercoreForwardAdapter implements RouteAdapter {
     protected readonly options: HypercoreForwardOptions,
   ) {}
 
-  abstract burn(transfer: BridgeTransfer): Promise<{ burnTx: string }>;
+  abstract burn(transfer: BridgeTransfer, context: AdapterContext): Promise<{ burnTx: string }>;
   abstract messageFor(transfer: BridgeTransfer): Promise<Hex | undefined>;
 
   async creditedInLedger(_transfer: BridgeTransfer, expected: bigint, since: number): Promise<boolean> {
@@ -63,17 +68,21 @@ export class SolanaHypercoreAdapter extends HypercoreForwardAdapter {
     return balance < amount ? `the bridge Solana account holds ${balance} base units, less than the ${amount} to burn` : undefined;
   }
 
-  async burn(transfer: BridgeTransfer): Promise<{ burnTx: string }> {
+  async burn(transfer: BridgeTransfer, { journal }: AdapterContext): Promise<{ burnTx: string }> {
     const forwarder = addressToBytes32(this.options.forwarder);
-    const { signature } = await this.solana.burn({
-      amount: BigInt(transfer.grossAmount),
-      destinationDomain: CCTP_DOMAINS.hyperEvm,
-      mintRecipient: forwarder,
-      destinationCaller: forwarder,
-      maxFee: BigInt(transfer.maxFee),
-      minFinalityThreshold: FINALITY_FAST,
-      hookData: encodeForwardHookData(this.options.recipient, HYPERCORE_DEX.perps),
-    });
+    const { signature } = await this.solana.burn(
+      {
+        transferId: transfer.transferId,
+        amount: BigInt(transfer.grossAmount),
+        destinationDomain: CCTP_DOMAINS.hyperEvm,
+        mintRecipient: forwarder,
+        destinationCaller: forwarder,
+        maxFee: BigInt(transfer.maxFee),
+        minFinalityThreshold: FINALITY_FAST,
+        hookData: encodeForwardHookData(this.options.recipient, HYPERCORE_DEX.perps),
+      },
+      armMessageAccount(journal, transfer),
+    );
     return { burnTx: signature };
   }
 
@@ -153,22 +162,26 @@ export class SolanaArcAdapter implements RouteAdapter {
     return balance < amount ? `the bridge Solana account holds ${balance} base units, less than the ${amount} to burn` : undefined;
   }
 
-  async burn(transfer: BridgeTransfer): Promise<{ burnTx: string }> {
+  async burn(transfer: BridgeTransfer, { journal }: AdapterContext): Promise<{ burnTx: string }> {
     const executor = addressToBytes32(this.options.hookExecutor);
     const deadline = BigInt(Math.floor(Date.now() / 1000) + this.options.deadlineSeconds);
-    const { signature } = await this.solana.burn({
-      amount: BigInt(transfer.grossAmount),
-      destinationDomain: CCTP_DOMAINS.arc,
-      mintRecipient: executor,
-      destinationCaller: executor,
-      maxFee: BigInt(transfer.maxFee),
-      minFinalityThreshold: FINALITY_FAST,
-      hookData: encodeVaultHookData({
-        beneficiary: this.options.beneficiary,
-        solanaDepositor: this.options.solanaDepositor,
-        deadline,
-      }),
-    });
+    const { signature } = await this.solana.burn(
+      {
+        transferId: transfer.transferId,
+        amount: BigInt(transfer.grossAmount),
+        destinationDomain: CCTP_DOMAINS.arc,
+        mintRecipient: executor,
+        destinationCaller: executor,
+        maxFee: BigInt(transfer.maxFee),
+        minFinalityThreshold: FINALITY_FAST,
+        hookData: encodeVaultHookData({
+          beneficiary: this.options.beneficiary,
+          solanaDepositor: this.options.solanaDepositor,
+          deadline,
+        }),
+      },
+      armMessageAccount(journal, transfer),
+    );
     return { burnTx: signature };
   }
 

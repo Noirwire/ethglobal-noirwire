@@ -201,6 +201,7 @@ export async function runSolanaLocalReceive(
     deadline: 1_900_000_000n,
   });
   const burn = await driver.burn({
+    transferId: "local-burn",
     amount: 1_000_000n,
     destinationDomain: CCTP_DOMAINS.arc,
     mintRecipient: executor,

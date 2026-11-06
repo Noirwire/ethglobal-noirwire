@@ -303,6 +303,24 @@ describe("a transfer out (solana-hypercore)", () => {
     expect((await post(base, "/v1/rebalance/requests/req-00000009/funded", { signature: SIGNATURE })).status).toBe(409);
   });
 
+  it("reserves the daily cap at acceptance and releases it when the request fails or lapses", async () => {
+    const attempt = (r: ReturnType<typeof rig>) =>
+      r.executor.submit({ intentId: word(9), closeId: 9, route: "arc-hypercore", amount: (10_000_000_000n - AMOUNT + 1n).toString(), reason: "margin-low", marginRatioBps: 1 });
+    const failed = rig();
+    failed.book.accept(failed.body());
+    expect(() => attempt(failed)).toThrow(/daily cap/);
+    failed.verifier.check = { status: "found", received: 1n };
+    await failed.book.funded("req-00000001", SIGNATURE);
+    expect(failed.book.state("req-00000001")).toBe("failed");
+    expect(attempt(failed)).toHaveLength(10);
+
+    const lapsed = rig();
+    lapsed.book.accept(lapsed.body());
+    expect(() => attempt(lapsed)).toThrow(/daily cap/);
+    lapsed.time.advance(11 * 60_000);
+    expect(attempt(lapsed)).toHaveLength(10);
+  });
+
   it("ends expired when it was never funded in time, and refuses a late funding call", async () => {
     const r = rig();
     r.book.accept(r.body());

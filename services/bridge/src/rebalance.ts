@@ -112,6 +112,9 @@ export class RebalanceBook {
           continue;
         }
       }
+      for (const stored of this.records.values()) {
+        if (stored.request.direction === "out" && !stored.started && stored.failure === undefined) this.reserve(stored);
+      }
     }
   }
 
@@ -134,7 +137,10 @@ export class RebalanceBook {
     const stored: Stored = { request, receivedAt: this.now().toISOString() };
     this.records.set(request.requestId, stored);
     if (request.direction === "in") this.start(stored);
-    else this.persist(stored);
+    else {
+      this.reserve(stored);
+      this.persist(stored);
+    }
     return { bridgeAta: this.options.bridgeAta };
   }
 
@@ -210,6 +216,7 @@ export class RebalanceBook {
       reason: "solana-rebalance",
       marginRatioBps: 0,
     };
+    this.executor.releaseCapacity(request.requestId);
     try {
       this.executor.submit(intent, request.direction === "in" ? { validUntil: request.validUntil } : {});
       stored.started = true;
@@ -219,7 +226,13 @@ export class RebalanceBook {
     }
   }
 
+  private reserve(stored: Stored): void {
+    const { request } = stored;
+    this.executor.reserveCapacity(request.requestId, BigInt(request.amount), new Date(request.validUntil));
+  }
+
   private fail(stored: Stored, reason: string): void {
+    this.executor.releaseCapacity(stored.request.requestId);
     stored.failure = reason;
     this.persist(stored);
   }

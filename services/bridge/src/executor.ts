@@ -74,6 +74,7 @@ export class TreasuryExecutor {
   private readonly pendingReasons = new Map<string, string>();
   private readonly advancing = new Set<string>();
   private hyperCoreHolder: string | undefined;
+  private readonly reservations = new Map<string, { amount: bigint; until: number }>();
 
   constructor(
     private readonly store: TransferStore,
@@ -184,9 +185,26 @@ export class TreasuryExecutor {
     return policy;
   }
 
+  reserveCapacity(key: string, amount: bigint, until: Date): void {
+    this.reservations.set(key, { amount, until: until.getTime() });
+  }
+
+  releaseCapacity(key: string): void {
+    this.reservations.delete(key);
+  }
+
+  private reservedAmount(): bigint {
+    const nowMs = this.now().getTime();
+    let total = 0n;
+    for (const { amount, until } of this.reservations.values()) if (until > nowMs) total += amount;
+    return total;
+  }
+
   private checkDailyCap(amount: bigint): void {
     const today = this.now().toISOString().slice(0, 10);
-    if (this.store.createdAmountOnDay(today) + amount > this.config.dailyCap) throw new IntentRejected("daily cap exceeded");
+    if (this.store.createdAmountOnDay(today) + this.reservedAmount() + amount > this.config.dailyCap) {
+      throw new IntentRejected("daily cap exceeded");
+    }
   }
 
   adoptBurn(input: { route: TransferRoute; burnTx: string; amount: bigint; beneficiary: string }): BridgeTransfer {
@@ -290,7 +308,7 @@ export class TreasuryExecutor {
   private async burn(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
     const id = transfer.transferId;
     const validUntil = this.store.meta(id)?.validUntil;
-    if (validUntil !== undefined && this.now().getTime() > Date.parse(validUntil)) {
+    if (validUntil !== undefined && !this.burnArmed(id) && this.now().getTime() > Date.parse(validUntil)) {
       this.store.refuse(id, REQUEST_EXPIRED_REASON);
       return { changed: true };
     }
@@ -298,6 +316,10 @@ export class TreasuryExecutor {
     if (this.hyperCoreHolder !== undefined && this.hyperCoreHolder !== id) {
       return { changed: false, pending: "waiting for the previous HyperCore transfer to settle" };
     }
+    const armedAhead = this.store
+      .inFlight()
+      .some((t) => t.transferId !== id && SERIALIZED_ROUTES.has(t.route) && t.state === "requested" && this.burnArmed(t.transferId));
+    if (armedAhead) return { changed: false, pending: "waiting for the previous HyperCore transfer to settle" };
     const urgentWaiting =
       this.store.meta(id)?.urgent !== true &&
       this.store.inFlight().some((t) => t.transferId !== id && t.state === "requested" && this.store.meta(t.transferId)?.urgent === true);
@@ -308,6 +330,12 @@ export class TreasuryExecutor {
     } finally {
       this.hyperCoreHolder = undefined;
     }
+  }
+
+  private burnArmed(transferId: string): boolean {
+    const meta = this.store.meta(transferId);
+    const withdraw = meta?.withdraw;
+    return meta?.burnAttempted === true || (withdraw !== undefined && withdraw.status !== "refused");
   }
 
   private async startBurn(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {

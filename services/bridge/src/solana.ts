@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
   Connection,
@@ -246,6 +247,10 @@ export async function readFeeRecipient(connection: Connection, usdcMint: PublicK
   return new PublicKey(account.data.subarray(FEE_RECIPIENT_OFFSET, FEE_RECIPIENT_OFFSET + 32));
 }
 
+export function messageAccountFor(transferId: string): Keypair {
+  return Keypair.fromSeed(createHash("sha256").update(transferId).digest());
+}
+
 export class SolanaDriver {
   constructor(
     readonly connection: Connection,
@@ -257,11 +262,15 @@ export class SolanaDriver {
     return getAssociatedTokenAddressSync(this.usdcMint, owner);
   }
 
-  async burn(params: Omit<SolanaBurnParams, "owner" | "messageSentEventData" | "burnTokenAccount" | "usdcMint">): Promise<{
+  async burn(
+    { transferId, ...params }: Omit<SolanaBurnParams, "owner" | "messageSentEventData" | "burnTokenAccount" | "usdcMint"> & { transferId: string },
+    beforeBroadcast?: (messageSentEventData: PublicKey) => void,
+  ): Promise<{
     signature: string;
     messageSentEventData: PublicKey;
   }> {
-    const eventAccount = Keypair.generate();
+    const eventAccount = messageAccountFor(transferId);
+    beforeBroadcast?.(eventAccount.publicKey);
     const instruction = buildDepositForBurnInstruction({
       ...params,
       owner: this.signer.publicKey,
