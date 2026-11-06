@@ -1,8 +1,8 @@
 import { useLive } from "../LiveProvider";
+import { AttesterBadge, NetMinted, TransferAmount } from "../parts";
 import { Rail, transferNodes } from "../TransferRail";
 import { CHAIN_LABEL } from "@/lib/explorers";
-import { formatUsdc } from "@/lib/format";
-import { ATTESTER_LABEL, ROUTE_CHAINS } from "@/lib/transfers";
+import { ROUTE_CHAINS } from "@/lib/transfers";
 
 const STEP_LABELS = ["Connect", "Amount", "Confirm"] as const;
 
@@ -122,20 +122,13 @@ export function TransferTracker({ transferId }: { transferId: string }) {
         <p className="text-ink-strong text-body">
           {CHAIN_LABEL[chains.from]} <span className="text-faint">to</span> {CHAIN_LABEL[chains.to]}
         </p>
-        <p className="tnum text-ink-strong text-body">
-          {formatUsdc(transfer.gross)} <span className="text-faint text-label">USDC</span>
-        </p>
+        <TransferAmount gross={transfer.gross} />
       </div>
       <Rail nodes={transferNodes(transfer)} />
       <div className="mt-4 flex flex-wrap items-center gap-2 text-label">
-        <span
-          className="border-line text-dim rounded-full border px-3 py-0.5"
-          title={local ? "Attestation signed by a local test key, not by Circle" : "Attestation fetched from Circle's Iris service"}
-        >
-          {ATTESTER_LABEL[transfer.attester]}
-        </span>
+        <AttesterBadge attester={transfer.attester} />
         {local && <span className="text-faint">local simulation, no public explorer</span>}
-        {transfer.netMinted && <span className="tnum text-faint">net minted {formatUsdc(transfer.netMinted)}</span>}
+        <NetMinted netMinted={transfer.netMinted} />
       </div>
     </section>
   );

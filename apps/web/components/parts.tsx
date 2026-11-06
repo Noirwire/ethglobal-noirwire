@@ -1,5 +1,7 @@
 import type { TrustLabel } from "@noirwire/shared";
-import type { Down } from "@/lib/view-types";
+import { formatUsdc } from "@/lib/format";
+import { ATTESTER_LABEL } from "@/lib/transfers";
+import type { Down, PublicTransfer } from "@/lib/view-types";
 
 export function NotConnected({ down }: { down: Down }) {
   return (
@@ -17,6 +19,32 @@ export function TrustTag({ trust, note }: { trust: TrustLabel; note?: string }) 
       {trust}
     </span>
   );
+}
+
+export function TransferAmount({ gross, children }: { gross: string; children?: React.ReactNode }) {
+  return (
+    <p className="tnum text-ink-strong text-body">
+      {formatUsdc(gross)} <span className="text-faint text-label">USDC</span>
+      {children}
+    </p>
+  );
+}
+
+export function AttesterBadge({ attester }: { attester: PublicTransfer["attester"] }) {
+  const local = attester === "local-test-attester";
+  return (
+    <span
+      className="border-line text-dim rounded-full border px-3 py-0.5"
+      title={local ? "Attestation signed by a local test key, not by Circle" : "Attestation fetched from Circle's Iris service"}
+    >
+      {ATTESTER_LABEL[attester]}
+    </span>
+  );
+}
+
+export function NetMinted({ netMinted }: { netMinted: string | null }) {
+  if (!netMinted) return null;
+  return <span className="tnum text-faint">net minted {formatUsdc(netMinted)}</span>;
 }
 
 export function Stat({

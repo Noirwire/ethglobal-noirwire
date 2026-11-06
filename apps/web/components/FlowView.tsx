@@ -1,12 +1,12 @@
 "use client";
 
 import { useLive } from "./LiveProvider";
-import { Label, NotConnected, TrustTag } from "./parts";
+import { AttesterBadge, Label, NetMinted, NotConnected, TransferAmount, TrustTag } from "./parts";
 import { Rail, transferNodes, type NodeView } from "./TransferRail";
 import { CHAIN_LABEL } from "@/lib/explorers";
-import { formatBtc, formatStamp, formatUsdc } from "@/lib/format";
+import { formatBtc, formatStamp } from "@/lib/format";
 import type { PublicBucket, PublicHedgeBucket } from "@/lib/privacy";
-import { ATTESTER_LABEL, ROUTE_CHAINS } from "@/lib/transfers";
+import { ROUTE_CHAINS } from "@/lib/transfers";
 import type { PublicTransfer } from "@/lib/view-types";
 
 function TransferRow({ transfer }: { transfer: PublicTransfer }) {
@@ -22,19 +22,16 @@ function TransferRow({ transfer }: { transfer: PublicTransfer }) {
             {CHAIN_LABEL[chains.from]} to {CHAIN_LABEL[chains.to]}
           </span>
         </p>
-        <p className="tnum text-ink-strong text-body">
-          {formatUsdc(transfer.gross)} <span className="text-faint text-label">USDC</span>
+        <TransferAmount gross={transfer.gross}>
           <span className={`${transfer.move.refused ? "text-danger" : "text-dim"} text-label block text-right`}>{transfer.move.step}</span>
-        </p>
+        </TransferAmount>
       </div>
       {transfer.move.refused && <p className="text-danger mb-4 text-label">{transfer.move.refused}</p>}
       <Rail nodes={transferNodes(transfer)} />
       <div className="mt-5 flex flex-wrap items-center gap-2 text-label">
-        <span className="border-line text-dim rounded-full border px-3 py-0.5" title={local ? "Attestation signed by a local test key, not by Circle" : "Attestation fetched from Circle's Iris service"}>
-          {ATTESTER_LABEL[transfer.attester]}
-        </span>
+        <AttesterBadge attester={transfer.attester} />
         <TrustTag trust="operator-supplied" note="Amounts are reported by the bridge service. Verify them at the linked transactions." />
-        {transfer.netMinted && <span className="tnum text-faint">net minted {formatUsdc(transfer.netMinted)}</span>}
+        <NetMinted netMinted={transfer.netMinted} />
         {local && <span className="text-faint">local chain, no public explorer</span>}
       </div>
     </li>
