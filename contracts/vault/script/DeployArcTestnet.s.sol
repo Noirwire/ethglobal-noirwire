@@ -23,7 +23,6 @@ contract DeployArcTestnet is Script {
     address internal constant MESSAGE_TRANSMITTER_V2 = 0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275;
     address internal constant TOKEN_MESSENGER_V2 = 0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA;
     address internal constant CRE_KEYSTONE_FORWARDER = 0x76c9cf548b4179F8901cda1f8623568b58215E62;
-    address internal constant CRE_SIMULATION_FORWARDER = 0x6E9EE680ef59ef64Aa8C7371279c27E496b5eDc1;
 
     error DeployArcTestnet__WrongChain(uint256 chainId);
 

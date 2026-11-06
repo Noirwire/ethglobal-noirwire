@@ -12,7 +12,9 @@ contract HookExecutorAdminTest is Base {
     function test_RevertWhen_TheConstructorGetsAZeroAddress() external {
         IMessageTransmitterV2 t = IMessageTransmitterV2(address(transmitter));
         vm.expectRevert(HookExecutor.HookExecutor__ZeroAddress.selector);
-        new HookExecutor(IMessageTransmitterV2(address(0)), usdc, vault, bytes32(0), bytes32(0), bytes32(0), address(this));
+        new HookExecutor(
+            IMessageTransmitterV2(address(0)), usdc, vault, bytes32(0), bytes32(0), bytes32(0), address(this)
+        );
         vm.expectRevert(HookExecutor.HookExecutor__ZeroAddress.selector);
         new HookExecutor(t, IERC20(address(0)), vault, bytes32(0), bytes32(0), bytes32(0), address(this));
         vm.expectRevert(HookExecutor.HookExecutor__ZeroAddress.selector);
@@ -68,7 +70,7 @@ contract HookExecutorAdminTest is Base {
         vm.assume(destination != address(0) && destination != address(executor));
         amount = bound(amount, 1, MAX_DEPOSIT);
         bytes32 nonce = bytes32(uint256(7));
-        _relay(hex"1234", amount, nonce);
+        _relay(_default(amount, hex"1234", nonce));
         assertEq(executor.quarantined(nonce), amount);
 
         uint256 before = usdc.balanceOf(destination);
@@ -93,19 +95,6 @@ contract HookExecutorAdminTest is Base {
     }
 
     function _relayExpired(address beneficiary, uint256 amount, bytes32 nonce) internal {
-        _relay(abi.encode(uint8(1), beneficiary, bytes32(0), uint64(block.timestamp - 1)), amount, nonce);
-    }
-
-    function _relay(bytes memory hookData, uint256 amount, bytes32 nonce) internal {
-        bytes32 self = bytes32(uint256(uint160(address(executor))));
-        bytes memory header = abi.encodePacked(
-            uint32(1), uint32(5), ARC_DOMAIN, nonce, sourceMessenger, localMessenger, self, uint32(1000), uint32(2000)
-        );
-        bytes memory body = abi.encodePacked(
-            uint32(1), sourceUsdcMint, self, amount, bytes32(0), uint256(0), uint256(0), uint256(0), hookData
-        );
-        bytes memory message = bytes.concat(header, body);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ATTESTER_KEY, keccak256(message));
-        executor.relay(message, abi.encodePacked(r, s, v));
+        _relay(_default(amount, _hook(beneficiary, uint64(block.timestamp - 1)), nonce));
     }
 }

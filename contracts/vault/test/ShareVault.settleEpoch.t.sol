@@ -54,9 +54,7 @@ contract ShareVaultSettleEpochTest is Base {
         _deliver(report);
     }
 
-    function testFuzz_GivenDeviation_NotAcknowledged_PausesWithoutSettling(uint256 deposit, uint256 crashPct)
-        external
-    {
+    function testFuzz_GivenDeviation_NotAcknowledged_PausesWithoutSettling(uint256 deposit, uint256 crashPct) external {
         deposit = bound(deposit, 1000e6, MAX_DEPOSIT);
         crashPct = bound(crashPct, 12, 90);
         _depositAndClaim(alice, deposit);
@@ -230,9 +228,7 @@ contract ShareVaultSettleEpochTest is Base {
         assertLe(assets, deposit - moved);
     }
 
-    function testFuzz_GivenPriceAboveTheHighWaterMark_MintsAPerformanceFee(uint256 deposit, uint256 gainPct)
-        external
-    {
+    function testFuzz_GivenPriceAboveTheHighWaterMark_MintsAPerformanceFee(uint256 deposit, uint256 gainPct) external {
         vault.setMaxPriceMoveBps(5000);
         deposit = bound(deposit, 1000e6, MAX_DEPOSIT);
         gainPct = bound(gainPct, 1, 40);

@@ -41,7 +41,11 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
     uint256 internal constant BODY_AMOUNT = BODY + 68;
     uint256 internal constant BODY_FEE_EXECUTED = BODY + 164;
     uint256 internal constant BODY_HOOK_DATA = BODY + 228;
+    uint256 internal constant WORD_SIZE = 32;
     uint256 internal constant HOOK_DATA_LENGTH = 128;
+    uint256 internal constant HOOK_BENEFICIARY = 32;
+    uint256 internal constant HOOK_DEPOSITOR = 64;
+    uint256 internal constant HOOK_DEADLINE = 96;
 
     IMessageTransmitterV2 public immutable TRANSMITTER;
     IERC20 public immutable USDC;
@@ -59,9 +63,7 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event DepositForwarded(
-        bytes32 indexed nonce, address indexed beneficiary, bytes32 solanaDepositor, uint256 amount
-    );
+    event DepositForwarded(bytes32 indexed nonce, address indexed beneficiary, bytes32 solanaDepositor, uint256 amount);
     event DepositHeld(
         bytes32 indexed nonce, address indexed beneficiary, bytes32 solanaDepositor, uint256 amount, bytes32 reason
     );
@@ -196,11 +198,10 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     function _validateRoute(bytes calldata message) internal view {
-        if (
-            uint32(bytes4(message[HEADER_VERSION:HEADER_VERSION + 4])) != MESSAGE_VERSION
-                || uint32(bytes4(message[BODY_VERSION:BODY_VERSION + 4])) != MESSAGE_VERSION
-        ) revert HookExecutor__BadVersion();
-        uint32 sourceDomain = uint32(bytes4(message[HEADER_SOURCE_DOMAIN:HEADER_SOURCE_DOMAIN + 4]));
+        if (_uint32(message, HEADER_VERSION) != MESSAGE_VERSION || _uint32(message, BODY_VERSION) != MESSAGE_VERSION) {
+            revert HookExecutor__BadVersion();
+        }
+        uint32 sourceDomain = _uint32(message, HEADER_SOURCE_DOMAIN);
         if (sourceDomain != SOLANA_DOMAIN) revert HookExecutor__WrongSourceDomain(sourceDomain);
         bytes32 self = _toBytes32(address(this));
         if (_word(message, HEADER_SENDER) != sourceTokenMessenger) revert HookExecutor__WrongSourceSender();
@@ -216,24 +217,28 @@ contract HookExecutor is Ownable2Step, ReentrancyGuardTransient {
         returns (bool valid, address beneficiary, bytes32 depositor, uint64 deadline)
     {
         if (hookData.length != HOOK_DATA_LENGTH) return (false, address(0), 0, 0);
-        uint256 versionWord = uint256(bytes32(hookData[0:32]));
-        uint256 beneficiaryWord = uint256(bytes32(hookData[32:64]));
-        uint256 deadlineWord = uint256(bytes32(hookData[96:128]));
+        uint256 versionWord = _uint(hookData, 0);
+        uint256 beneficiaryWord = _uint(hookData, HOOK_BENEFICIARY);
+        uint256 deadlineWord = _uint(hookData, HOOK_DEADLINE);
         if (
             versionWord != HOOK_VERSION || beneficiaryWord == 0 || beneficiaryWord > type(uint160).max
                 || deadlineWord > type(uint64).max
         ) {
             return (false, address(0), 0, 0);
         }
-        return (true, address(uint160(beneficiaryWord)), bytes32(hookData[64:96]), uint64(deadlineWord));
+        return (true, address(uint160(beneficiaryWord)), _word(hookData, HOOK_DEPOSITOR), uint64(deadlineWord));
+    }
+
+    function _uint32(bytes calldata data, uint256 offset) internal pure returns (uint32 value) {
+        value = uint32(bytes4(data[offset:offset + 4]));
     }
 
     function _word(bytes calldata data, uint256 offset) internal pure returns (bytes32 word) {
-        word = bytes32(data[offset:offset + 32]);
+        word = bytes32(data[offset:offset + WORD_SIZE]);
     }
 
     function _uint(bytes calldata data, uint256 offset) internal pure returns (uint256 value) {
-        value = uint256(bytes32(data[offset:offset + 32]));
+        value = uint256(_word(data, offset));
     }
 
     function _toBytes32(address value) internal pure returns (bytes32 word) {

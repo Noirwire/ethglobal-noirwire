@@ -26,7 +26,7 @@ contract ShareVaultInvariantsTest is StdInvariant, Base {
             claimsTotal += assets;
         }
         assertLe(claimsTotal, vault.reservedAssets());
-        assertLe(vault.reservedAssets() + vault.totalPendingDeposits(), vault.ledgerAssets());
+        assertLe(vault.reservedAssets() + _pendingDeposits(), vault.ledgerAssets());
         assertLe(vault.ledgerAssets(), usdc.balanceOf(address(vault)));
     }
 
@@ -38,7 +38,7 @@ contract ShareVaultInvariantsTest is StdInvariant, Base {
     /// @dev Reserved assets for settled redemptions are never moved out of the vault.
     function invariant_ReservedAssetsStayInTheVault() external view {
         assertGe(usdc.balanceOf(address(vault)), vault.reservedAssets());
-        assertGe(usdc.balanceOf(address(vault)), vault.reservedAssets() + vault.totalPendingDeposits());
+        assertGe(usdc.balanceOf(address(vault)), vault.reservedAssets() + _pendingDeposits());
     }
 
     /// @dev Unclaimed deposit shares and escrowed redemption shares are all held by the vault.

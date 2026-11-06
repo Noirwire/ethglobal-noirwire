@@ -15,10 +15,6 @@ contract NavReceiverOnReportTest is Base {
         return abi.encode(uint8(2), body);
     }
 
-    function _metadata(bytes32 id, bytes10 name, address workflowOwner_) internal pure returns (bytes memory) {
-        return abi.encodePacked(id, name, workflowOwner_, bytes2(0x0001));
-    }
-
     function testFuzz_RevertWhen_TheCallerIsNotTheForwarder(address caller) external {
         vm.assume(caller != address(forwarder));
         bytes memory report = _navReport(1, uint64(block.timestamp), 0, 0);
@@ -55,9 +51,7 @@ contract NavReceiverOnReportTest is Base {
         forwarder.deliver(address(receiver), WORKFLOW_ID, name, workflowOwner, report);
     }
 
-    function testFuzz_GivenIdentityChecksDisabled_AcceptsAnyWorkflow(bytes32 id, bytes10 name, address other)
-        external
-    {
+    function testFuzz_GivenIdentityChecksDisabled_AcceptsAnyWorkflow(bytes32 id, bytes10 name, address other) external {
         receiver.setWorkflowIdentity(bytes32(0), address(0), bytes10(0));
         forwarder.deliver(address(receiver), id, name, other, _navReport(1, uint64(block.timestamp), 0, 0));
         assertEq(vault.currentEpoch(), 2);
@@ -83,12 +77,11 @@ contract NavReceiverOnReportTest is Base {
         _deliver(report);
     }
 
-    function testFuzz_WhenTheVaultAcceptsTheSettlement_SettlesAndEmits(uint256 deposit, bytes32 sourcesHash)
-        external
-    {
+    function testFuzz_WhenTheVaultAcceptsTheSettlement_SettlesAndEmits(uint256 deposit, bytes32 sourcesHash) external {
         deposit = bound(deposit, 1, MAX_DEPOSIT);
         _deposit(alice, deposit);
-        bytes memory body = abi.encode(uint8(1), uint64(1), uint64(block.timestamp), uint256(0), uint256(0), sourcesHash);
+        bytes memory body =
+            abi.encode(uint8(1), uint64(1), uint64(block.timestamp), uint256(0), uint256(0), sourcesHash);
 
         vm.expectEmit(true, false, false, true, address(receiver));
         emit NavReceiver.NavReportReceived(1, uint64(block.timestamp), 0, 0, sourcesHash);
@@ -129,7 +122,6 @@ contract NavReceiverOnReportTest is Base {
         emit NavReceiver.TopUpIntentRecorded(intentId, 1, route, amount, 1500, reason);
         _deliver(_topUp(intentId, 1, route, reason, amount));
 
-        assertTrue(receiver.intentRecorded(intentId));
         (uint64 closeId, uint64 recordedAt, uint16 ratio, uint8 storedRoute, uint8 storedReason, uint256 storedAmount) =
             receiver.topUpIntents(intentId);
         assertEq(closeId, 1);

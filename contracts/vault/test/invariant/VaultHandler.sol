@@ -127,7 +127,8 @@ contract VaultHandler is Test {
         uint256 feeBefore = VAULT.balanceOf(FEE_RECIPIENT);
 
         bytes memory body = abi.encode(uint8(1), epoch, uint64(block.timestamp), assets, liabilities, bytes32(0));
-        try FORWARDER.deliver(RECEIVER, bytes32(0), bytes10(0), address(0), abi.encode(uint8(1), body)) {} catch {
+        try FORWARDER.deliver(RECEIVER, bytes32(0), bytes10(0), address(0), abi.encode(uint8(1), body)) {}
+        catch {
             return;
         }
         if (VAULT.currentEpoch() == epoch) return;

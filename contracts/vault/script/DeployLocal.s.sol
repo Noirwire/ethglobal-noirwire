@@ -23,20 +23,17 @@ contract DeployLocal is Script {
 
     function run() external returns (ShareVault vault, NavReceiver receiver, HookExecutor executor) {
         address attester = vm.envOr("ATTESTER_ADDRESS", DEFAULT_LOCAL_ATTESTER);
-        address operator = vm.envOr("OPERATOR", msg.sender);
-        address treasury = vm.envOr("TREASURY_EXECUTOR", msg.sender);
-        address feeRecipient = vm.envOr("FEE_RECIPIENT", msg.sender);
-        bytes32 solanaTokenMessenger = vm.envOr("SOLANA_TOKEN_MESSENGER", keccak256("noirwire.local.solana.tokenMessenger"));
-        bytes32 solanaUsdcMint = vm.envOr("SOLANA_USDC_MINT", keccak256("noirwire.local.solana.usdcMint"));
+        bytes32 solanaTokenMessenger = keccak256("noirwire.local.solana.tokenMessenger");
+        bytes32 solanaUsdcMint = keccak256("noirwire.local.solana.usdcMint");
         address tokenMessenger = address(uint160(uint256(keccak256("noirwire.local.arc.tokenMessengerV2"))));
 
         vm.startBroadcast();
         MockUSDC usdc = new MockUSDC();
         MockForwarder forwarder = new MockForwarder();
         MockMessageTransmitterV2 transmitter =
-            new MockMessageTransmitterV2(usdc, attester, ARC_DOMAIN, feeRecipient, msg.sender);
+            new MockMessageTransmitterV2(usdc, attester, ARC_DOMAIN, msg.sender, msg.sender);
 
-        vault = new ShareVault(usdc, msg.sender, feeRecipient);
+        vault = new ShareVault(usdc, msg.sender, msg.sender);
         receiver = new NavReceiver(vault, address(forwarder), msg.sender);
         executor = new HookExecutor(
             IMessageTransmitterV2(address(transmitter)),
@@ -49,8 +46,8 @@ contract DeployLocal is Script {
         );
 
         vault.setNavReceiver(address(receiver));
-        vault.setOperator(operator);
-        vault.setDestinationAllowed(treasury, true);
+        vault.setOperator(msg.sender);
+        vault.setDestinationAllowed(msg.sender, true);
         vault.setMoveCaps(DEFAULT_MOVE_CAP, DEFAULT_MOVE_CAP);
         vm.stopBroadcast();
 

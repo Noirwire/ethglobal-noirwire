@@ -178,9 +178,7 @@ contract ShareVaultTreasuryTest is Base {
         vault.sweepSurplus(address(0));
     }
 
-    function testFuzz_WhenUsdcSitsOutsideTheLedger_SweepsExactlyTheSurplus(uint256 deposit, uint256 donated)
-        external
-    {
+    function testFuzz_WhenUsdcSitsOutsideTheLedger_SweepsExactlyTheSurplus(uint256 deposit, uint256 donated) external {
         deposit = bound(deposit, 1, MAX_DEPOSIT);
         donated = bound(donated, 1, MAX_DEPOSIT);
         _deposit(alice, deposit);

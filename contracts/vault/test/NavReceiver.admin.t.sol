@@ -40,9 +40,10 @@ contract NavReceiverAdminTest is Base {
         vm.expectRevert(NavReceiver.NavReceiver__NotForwarder.selector);
         _deliver(_navReport(1, uint64(block.timestamp), 0, 0));
 
-        bytes memory metadata = abi.encodePacked(WORKFLOW_ID, WORKFLOW_NAME, workflowOwner, bytes2(0x0001));
         vm.prank(newForwarder);
-        receiver.onReport(metadata, _navReport(1, uint64(block.timestamp), 0, 0));
+        receiver.onReport(
+            _metadata(WORKFLOW_ID, WORKFLOW_NAME, workflowOwner), _navReport(1, uint64(block.timestamp), 0, 0)
+        );
         assertEq(vault.currentEpoch(), 2);
     }
 

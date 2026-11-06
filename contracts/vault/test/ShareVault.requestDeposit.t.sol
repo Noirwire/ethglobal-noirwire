@@ -75,7 +75,7 @@ contract ShareVaultRequestDepositTest is Base {
         vm.prank(bob);
         usdc.transfer(address(vault), donated);
 
-        assertEq(vault.totalPendingDeposits(), 0);
+        assertEq(_pendingDeposits(), 0);
         assertEq(vault.navCash(), 0);
         assertEq(vault.surplusAssets(), donated);
         assertEq(vault.totalSupply(), 0);

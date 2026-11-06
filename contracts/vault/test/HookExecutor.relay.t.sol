@@ -6,79 +6,6 @@ import {HookExecutor} from "src/HookExecutor.sol";
 import {MockMessageTransmitterV2} from "test/mocks/MockMessageTransmitterV2.sol";
 
 contract HookExecutorRelayTest is Base {
-    bytes32 internal constant DEPOSITOR = keccak256("solana-depositor");
-
-    struct Msg {
-        uint32 version;
-        uint32 sourceDomain;
-        bytes32 sender;
-        bytes32 burnToken;
-        bytes32 recipient;
-        bytes32 destinationCaller;
-        bytes32 mintRecipient;
-        uint256 amount;
-        uint256 feeExecuted;
-        bytes hookData;
-        bytes32 nonce;
-    }
-
-    function _hook(address beneficiary, uint64 deadline) internal pure returns (bytes memory) {
-        return abi.encode(uint8(1), beneficiary, DEPOSITOR, deadline);
-    }
-
-    function _default(uint256 amount, bytes memory hookData, bytes32 nonce) internal view returns (Msg memory m) {
-        bytes32 self = bytes32(uint256(uint160(address(executor))));
-        m = Msg({
-            version: 1,
-            sourceDomain: 5,
-            sender: sourceMessenger,
-            burnToken: sourceUsdcMint,
-            recipient: localMessenger,
-            destinationCaller: self,
-            mintRecipient: self,
-            amount: amount,
-            feeExecuted: 0,
-            hookData: hookData,
-            nonce: nonce
-        });
-    }
-
-    function _encode(Msg memory m) internal pure returns (bytes memory) {
-        bytes memory header = abi.encodePacked(
-            m.version,
-            m.sourceDomain,
-            ARC_DOMAIN,
-            m.nonce,
-            m.sender,
-            m.recipient,
-            m.destinationCaller,
-            uint32(1000),
-            uint32(2000)
-        );
-        bytes memory body = abi.encodePacked(
-            uint32(1),
-            m.burnToken,
-            m.mintRecipient,
-            m.amount,
-            DEPOSITOR,
-            uint256(0),
-            m.feeExecuted,
-            uint256(0),
-            m.hookData
-        );
-        return bytes.concat(header, body);
-    }
-
-    function _sign(bytes memory message) internal pure returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ATTESTER_KEY, keccak256(message));
-        return abi.encodePacked(r, s, v);
-    }
-
-    function _relay(Msg memory m) internal {
-        bytes memory message = _encode(m);
-        executor.relay(message, _sign(message));
-    }
-
     function _expectRevertRelay(Msg memory m, bytes memory expected) internal {
         bytes memory message = _encode(m);
         bytes memory attestation = _sign(message);
@@ -203,9 +130,11 @@ contract HookExecutorRelayTest is Base {
         assertEq(usdc.balanceOf(alice) - before, amount);
     }
 
-    function testFuzz_GivenTheVaultRejectsTheDeposit_HoldsTheUsdcAsAClaim(uint256 amount, uint256 lateness, bytes32 nonce)
-        external
-    {
+    function testFuzz_GivenTheVaultRejectsTheDeposit_HoldsTheUsdcAsAClaim(
+        uint256 amount,
+        uint256 lateness,
+        bytes32 nonce
+    ) external {
         vm.assume(nonce != bytes32(0));
         amount = bound(amount, 1, MAX_DEPOSIT);
         lateness = bound(lateness, 1, 365 days);

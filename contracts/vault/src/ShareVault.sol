@@ -46,8 +46,9 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     uint256 public constant BPS = 10_000;
-    uint256 public constant PRICE_SCALE = 1e18;
-    uint256 public constant USDC_TO_E18 = 1e12;
+    uint256 internal constant PRICE_SCALE = 1e18;
+    uint256 internal constant USDC_TO_E18 = 1e12;
+    uint256 internal constant ALL_EPOCHS = type(uint256).max;
     /// @dev Price is the USD value of one whole share (1e18 share units) scaled by 1e18:
     /// price = netAssets6 * 1e12 * 1e18 / supply18. The opening price is 1e18, so 1 USDC (1e6 units)
     /// mints 1e6 * 1e12 * 1e18 / 1e18 = 1e18 share units. Both conversions round down.
@@ -173,7 +174,9 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
         ERC20("NoirWire Maker Vault Share", "nwMV")
         Ownable(owner_)
     {
-        if (address(usdc_) == address(0) || feeRecipient_ == address(0)) revert ShareVault__ZeroAddress();
+        if (address(usdc_) == address(0) || feeRecipient_ == address(0)) {
+            revert ShareVault__ZeroAddress();
+        }
         USDC = usdc_;
         feeRecipient = feeRecipient_;
         lastSettledAt = uint64(block.timestamp);
@@ -184,9 +187,7 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
     //////////////////////////////////////////////////////////////*/
 
     function requestDeposit(uint256 assets, address receiver) external nonReentrant {
-        if (assets == 0) revert ShareVault__ZeroAmount();
-        if (receiver == address(0)) revert ShareVault__ZeroAddress();
-        if (requestsPaused) revert ShareVault__RequestsPaused();
+        _checkRequest(assets, receiver);
         if (stalled()) revert ShareVault__StaleHalt();
 
         _syncDeposit(receiver);
@@ -214,13 +215,11 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
     }
 
     function requestRedeem(uint256 shares, address receiver) external nonReentrant {
-        if (shares == 0) revert ShareVault__ZeroAmount();
-        if (receiver == address(0)) revert ShareVault__ZeroAddress();
-        if (requestsPaused) revert ShareVault__RequestsPaused();
+        _checkRequest(shares, receiver);
         uint256 unlocksAt = lockedUntil[msg.sender];
         if (block.timestamp < unlocksAt) revert ShareVault__LockupActive(unlocksAt);
 
-        _advanceRedeem(receiver, type(uint256).max);
+        _advanceRedeem(receiver, ALL_EPOCHS);
         _transfer(msg.sender, address(this), shares);
 
         uint64 epoch = currentEpoch;
@@ -232,7 +231,7 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
     }
 
     function cancelRedeem() external nonReentrant {
-        _advanceRedeem(msg.sender, type(uint256).max);
+        _advanceRedeem(msg.sender, ALL_EPOCHS);
         RedeemRequest memory request = redeemRequests[msg.sender];
         if (request.shares == 0) revert ShareVault__NothingToCancel();
 
@@ -252,7 +251,7 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
         if (block.timestamp - observedAt > maxReportAge) revert ShareVault__ReportTooOld();
 
         uint256 supply = totalSupply();
-        uint256 netAssets = totalAssets > totalLiabilities ? totalAssets - totalLiabilities : 0;
+        uint256 netAssets = _floorSub(totalAssets, totalLiabilities);
         (uint256 price, uint256 feeShares) = _priceAfterFee(netAssets, supply);
         if (supply > 0 && price == 0) revert ShareVault__SharePriceZero();
 
@@ -302,7 +301,7 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
     }
 
     function claimAssets(address user) external nonReentrant {
-        _advanceRedeem(user, type(uint256).max);
+        _advanceRedeem(user, ALL_EPOCHS);
         uint256 assets = claimableAssets[user];
         if (assets == 0) revert ShareVault__ZeroAmount();
         uint256 reserved = reservedAssets;
@@ -326,7 +325,7 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
         uint64 epoch = currentEpoch;
         uint256 moved = movedInEpoch[epoch];
         uint256 perEpoch = maxMovePerEpoch;
-        uint256 epochRoom = perEpoch > moved ? perEpoch - moved : 0;
+        uint256 epochRoom = _floorSub(perEpoch, moved);
         if (amount > epochRoom) revert ShareVault__OverPerEpochCap(epochRoom);
         uint256 available = idleAssets();
         if (amount > available) revert ShareVault__InsufficientIdleAssets(available);
@@ -423,10 +422,6 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
                     USER-FACING READ-ONLY FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    function totalPendingDeposits() external view returns (uint256 pending) {
-        pending = epochDepositAssets[currentEpoch];
-    }
-
     /// @notice USDC cash that belongs in the NAV report: the ledger minus settled redemptions
     /// awaiting claim and minus deposits still pending in the open epoch.
     function navCash() external view returns (uint256 cash) {
@@ -434,15 +429,11 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
     }
 
     function idleAssets() public view returns (uint256 idle) {
-        uint256 locked = reservedAssets + epochDepositAssets[currentEpoch];
-        uint256 ledger = ledgerAssets;
-        idle = ledger > locked ? ledger - locked : 0;
+        idle = _floorSub(ledgerAssets, reservedAssets + epochDepositAssets[currentEpoch]);
     }
 
     function surplusAssets() public view returns (uint256 surplus) {
-        uint256 balance = USDC.balanceOf(address(this));
-        uint256 ledger = ledgerAssets;
-        surplus = balance > ledger ? balance - ledger : 0;
+        surplus = _floorSub(USDC.balanceOf(address(this)), ledgerAssets);
     }
 
     function stalled() public view returns (bool isStalled) {
@@ -514,6 +505,12 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
                      INTERNAL READ-ONLY FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    function _checkRequest(uint256 amount, address receiver) internal view {
+        if (amount == 0) revert ShareVault__ZeroAmount();
+        if (receiver == address(0)) revert ShareVault__ZeroAddress();
+        if (requestsPaused) revert ShareVault__RequestsPaused();
+    }
+
     function _priceAfterFee(uint256 netAssets, uint256 supply)
         internal
         view
@@ -543,12 +540,14 @@ contract ShareVault is ERC20, Ownable2Step, ReentrancyGuardTransient {
         if (redeemShares == 0) return 0;
         uint256 wanted = _assetsFor(redeemShares, price);
         uint256 cap = netAssets * maxRedeemBps / BPS;
-        uint256 ledger = ledgerAssets;
-        uint256 reserved = reservedAssets;
-        uint256 cash = ledger > reserved ? ledger - reserved : 0;
+        uint256 cash = _floorSub(ledgerAssets, reservedAssets);
         if (cash < cap) cap = cash;
         if (wanted <= cap) return redeemShares;
         filled = redeemShares * cap / wanted;
+    }
+
+    function _floorSub(uint256 a, uint256 b) internal pure returns (uint256 difference) {
+        difference = a > b ? a - b : 0;
     }
 
     function _priceOf(uint256 netAssets, uint256 supply) internal pure returns (uint256 price) {

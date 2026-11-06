@@ -36,6 +36,8 @@ contract NavReceiver is IReceiver, Ownable2Step {
     uint8 public constant MAX_ROUTE = 3;
     uint8 public constant MAX_REASON = 3;
     uint256 public constant METADATA_MIN_LENGTH = 62;
+    uint256 internal constant METADATA_NAME_OFFSET = 32;
+    uint256 internal constant METADATA_OWNER_OFFSET = 42;
 
     ShareVault public immutable VAULT;
 
@@ -45,26 +47,16 @@ contract NavReceiver is IReceiver, Ownable2Step {
     bytes32 public expectedWorkflowId;
 
     mapping(bytes32 intentId => TopUpIntent intent) public topUpIntents;
-    mapping(bytes32 intentId => bool recorded) public intentRecorded;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
 
     event NavReportReceived(
-        uint64 indexed closeId,
-        uint64 observedAt,
-        uint256 totalAssets,
-        uint256 totalLiabilities,
-        bytes32 sourcesHash
+        uint64 indexed closeId, uint64 observedAt, uint256 totalAssets, uint256 totalLiabilities, bytes32 sourcesHash
     );
     event TopUpIntentRecorded(
-        bytes32 indexed intentId,
-        uint64 closeId,
-        uint8 route,
-        uint256 amount,
-        uint16 marginRatioBps,
-        uint8 reason
+        bytes32 indexed intentId, uint64 closeId, uint8 route, uint256 amount, uint16 marginRatioBps, uint8 reason
     );
     event ForwarderUpdated(address forwarder);
     event WorkflowIdentityUpdated(bytes32 workflowId, address workflowOwner, bytes10 workflowName);
@@ -115,10 +107,7 @@ contract NavReceiver is IReceiver, Ownable2Step {
     }
 
     /// @notice A zero workflow id, owner or name disables that individual check.
-    function setWorkflowIdentity(bytes32 workflowId, address workflowOwner, bytes10 workflowName)
-        external
-        onlyOwner
-    {
+    function setWorkflowIdentity(bytes32 workflowId, address workflowOwner, bytes10 workflowName) external onlyOwner {
         expectedWorkflowId = workflowId;
         expectedWorkflowOwner = workflowOwner;
         expectedWorkflowName = workflowName;
@@ -146,7 +135,7 @@ contract NavReceiver is IReceiver, Ownable2Step {
             uint256 totalLiabilities,
             bytes32 sourcesHash
         ) = abi.decode(body, (uint8, uint64, uint64, uint256, uint256, bytes32));
-        if (version != REPORT_VERSION) revert NavReceiver__UnsupportedVersion(version);
+        _checkVersion(version);
         emit NavReportReceived(closeId, observedAt, totalAssets, totalLiabilities, sourcesHash);
         VAULT.settleEpoch(closeId, totalAssets, totalLiabilities, observedAt);
     }
@@ -161,12 +150,10 @@ contract NavReceiver is IReceiver, Ownable2Step {
             uint16 marginRatioBps,
             uint8 reason
         ) = abi.decode(body, (uint8, bytes32, uint64, uint8, uint256, uint16, uint8));
-        if (version != REPORT_VERSION) revert NavReceiver__UnsupportedVersion(version);
+        _checkVersion(version);
         if (route > MAX_ROUTE || reason > MAX_REASON || amount == 0) revert NavReceiver__InvalidIntent();
-        if (intentRecorded[intentId]) revert NavReceiver__DuplicateIntent(intentId);
-        intentRecorded[intentId] = true;
-        topUpIntents[intentId] =
-            TopUpIntent(closeId, uint64(block.timestamp), marginRatioBps, route, reason, amount);
+        if (topUpIntents[intentId].recordedAt != 0) revert NavReceiver__DuplicateIntent(intentId);
+        topUpIntents[intentId] = TopUpIntent(closeId, uint64(block.timestamp), marginRatioBps, route, reason, amount);
         emit TopUpIntentRecorded(intentId, closeId, route, amount, marginRatioBps, reason);
     }
 
@@ -174,18 +161,26 @@ contract NavReceiver is IReceiver, Ownable2Step {
                      INTERNAL READ-ONLY FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    function _checkVersion(uint8 version) internal pure {
+        if (version != REPORT_VERSION) revert NavReceiver__UnsupportedVersion(version);
+    }
+
     function _checkWorkflow(bytes calldata metadata) internal view {
         if (metadata.length < METADATA_MIN_LENGTH) revert NavReceiver__BadMetadata();
         bytes32 expectedId = expectedWorkflowId;
         address expectedOwner = expectedWorkflowOwner;
         bytes10 expectedName = expectedWorkflowName;
-        if (expectedId != bytes32(0) && bytes32(metadata[0:32]) != expectedId) {
+        if (expectedId != bytes32(0) && bytes32(metadata[0:METADATA_NAME_OFFSET]) != expectedId) {
             revert NavReceiver__WrongWorkflowId();
         }
-        if (expectedName != bytes10(0) && bytes10(metadata[32:42]) != expectedName) {
+        if (expectedName != bytes10(0) && bytes10(metadata[METADATA_NAME_OFFSET:METADATA_OWNER_OFFSET]) != expectedName)
+        {
             revert NavReceiver__WrongWorkflowName();
         }
-        if (expectedOwner != address(0) && address(bytes20(metadata[42:62])) != expectedOwner) {
+        if (
+            expectedOwner != address(0)
+                && address(bytes20(metadata[METADATA_OWNER_OFFSET:METADATA_MIN_LENGTH])) != expectedOwner
+        ) {
             revert NavReceiver__WrongWorkflowOwner();
         }
     }
