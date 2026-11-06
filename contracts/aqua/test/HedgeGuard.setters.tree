@@ -1,0 +1,40 @@
+HedgeGuard.setTarget
+├── when the caller is not the hedger
+│   └── it should revert with OnlyHedger
+└── when the caller is the hedger
+    ├── when the target is invalid (zero maker, no direction, zero size, zero or inverted prices, past expiry)
+    │   └── it should revert with InvalidTarget
+    └── when the target is valid
+        └── it should store the target, overwrite any remaining size and emit TargetSet
+
+HedgeGuard.clearTarget
+├── when the caller is not the hedger
+│   └── it should revert with OnlyHedger
+└── when the caller is the hedger
+    └── it should delete the target and emit TargetCleared
+
+HedgeGuard.setOracle
+├── when the caller is not the owner
+│   └── it should revert
+└── when the caller is the owner
+    ├── when the feed is zero, or max age is zero, or deviation is zero or above 10000 bps
+    │   └── it should revert with InvalidOracleConfig
+    └── when the config is valid
+        └── it should store the config and emit OracleConfigured
+
+HedgeGuard.setHedger
+├── when the caller is not the owner
+│   └── it should revert
+└── when the caller is the owner
+    ├── when the new hedger is zero
+    │   └── it should revert with ZeroAddress
+    └── when the new hedger is non-zero
+        └── it should rotate the hedger and emit HedgerChanged
+
+HedgeGuard.oraclePriceE8
+├── when the feed has 8 decimals
+│   └── it should return the answer
+├── when the feed has more than 8 decimals
+│   └── it should divide down to 8 decimals
+└── when the feed has fewer than 8 decimals
+    └── it should multiply up to 8 decimals

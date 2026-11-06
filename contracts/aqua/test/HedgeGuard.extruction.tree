@@ -1,0 +1,34 @@
+HedgeGuard.extruction
+├── when either swap amount is zero
+│   └── it should revert with AmountsNotComputed
+└── when both swap amounts are computed
+    ├── given no target is set for the maker
+    │   └── it should revert with TargetNotSet
+    └── given a target is set
+        ├── given the target has expired
+        │   └── it should revert with TargetExpired
+        └── given the target has not expired
+            ├── when the token pair is not the allowed direction
+            │   └── it should revert with WrongDirection
+            └── when the token pair is the allowed direction
+                ├── when the BTC size is above the remaining size
+                │   └── it should revert with SizeExceedsRemaining
+                └── when the BTC size is within the remaining size
+                    ├── when the implied price is outside the band
+                    │   └── it should revert with PriceOutsideBand
+                    └── when the implied price is inside the band
+                        ├── given the feed answer is not positive
+                        │   └── it should revert with OracleInvalid
+                        ├── given the feed is older than the max age
+                        │   └── it should revert with OracleStale
+                        └── given the feed is fresh
+                            ├── when the price is further from the feed than the max deviation
+                            │   └── it should revert with PriceFarFromOracle
+                            └── when the price is within the max deviation
+                                ├── given a static call (quote)
+                                │   └── it should return the registers unchanged and write nothing
+                                └── given a swap call
+                                    ├── given the caller is not the router
+                                    │   └── it should revert with OnlyRouter
+                                    └── given the caller is the router
+                                        └── it should return the registers unchanged, decrement remaining and emit HedgeFilled

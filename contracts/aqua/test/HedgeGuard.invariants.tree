@@ -1,0 +1,15 @@
+HedgeGuard invariants
+├── remaining size never increases except through the hedger's setTarget
+├── no fill in the wrong direction ever succeeds
+├── no fill above the remaining size ever succeeds
+└── remaining size never exceeds the last size the hedger authorized
+
+HedgeGuard through the official SwapVM router
+├── when the taker swaps USDC for WBTC against a MakerSellsBtc target
+│   └── it should quote exactly what the swap delivers and move real tokens
+├── when the taker swaps WBTC for USDC against a MakerSellsBtc target
+│   └── it should revert with WrongDirection and move nothing
+├── when the swap is larger than the remaining target
+│   └── it should revert with SizeExceedsRemaining
+└── when the hedger clears the target between quote and swap
+    └── it should revert with TargetNotSet
