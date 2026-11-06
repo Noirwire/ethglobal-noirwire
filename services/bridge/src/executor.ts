@@ -48,6 +48,7 @@ export type StepResult = { changed: boolean; pending?: string };
 
 export class TreasuryExecutor {
   private readonly pendingReasons = new Map<string, string>();
+  private readonly advancing = new Set<string>();
 
   constructor(
     private readonly store: TransferStore,
@@ -59,7 +60,13 @@ export class TreasuryExecutor {
 
   submit(intent: TopUpIntent): BridgeTransfer[] {
     const existing = this.store.list().filter((t) => this.store.meta(t.transferId)?.intentId === intent.intentId);
-    if (existing.length > 0) return existing;
+    if (existing.length > 0) {
+      const sameAmount = existing.reduce((sum, t) => sum + BigInt(t.grossAmount), 0n) === BigInt(intent.amount);
+      if (!sameAmount || existing.some((t) => t.route !== intent.route)) {
+        throw new IntentRejected(`intent ${intent.intentId} was already submitted with a different amount or route`);
+      }
+      return existing;
+    }
 
     const policy = this.config.routes[intent.route];
     if (!policy || !this.adapters[intent.route]) throw new IntentRejected(`route ${intent.route} is not supported`);
@@ -118,16 +125,22 @@ export class TreasuryExecutor {
   }
 
   async advance(transferId: string): Promise<void> {
-    for (let guard = 0; guard < 8; guard++) {
-      const result = await this.step(transferId);
-      if (result.pending) this.pendingReasons.set(transferId, result.pending);
-      else this.pendingReasons.delete(transferId);
-      if (!result.changed) return;
-      const state = this.store.get(transferId)?.state;
-      if (!state || SETTLED_TRANSFER_STATES.has(state)) {
-        this.pendingReasons.delete(transferId);
-        return;
+    if (this.advancing.has(transferId)) return;
+    this.advancing.add(transferId);
+    try {
+      for (let guard = 0; guard < 8; guard++) {
+        const result = await this.step(transferId);
+        if (result.pending) this.pendingReasons.set(transferId, result.pending);
+        else this.pendingReasons.delete(transferId);
+        if (!result.changed) return;
+        const state = this.store.get(transferId)?.state;
+        if (!state || SETTLED_TRANSFER_STATES.has(state)) {
+          this.pendingReasons.delete(transferId);
+          return;
+        }
       }
+    } finally {
+      this.advancing.delete(transferId);
     }
   }
 

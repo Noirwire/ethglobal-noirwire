@@ -97,6 +97,21 @@ describe("intent policy", () => {
     expect(transfers.map((t) => t.transferId)).toEqual([`${intentId(1)}:0`, `${intentId(1)}:1`, `${intentId(1)}:2`]);
   });
 
+  it("rejects a repeated intentId whose amount or route differs", () => {
+    const { executor, store } = setup();
+    executor.submit(intent({ amount: "500000000" }));
+    expect(() => executor.submit(intent({ amount: "400000000" }))).toThrow(/different amount or route/);
+    expect(() => executor.submit(intent({ route: "arc-solana" }))).toThrow(IntentRejected);
+    expect(executor.submit(intent({ amount: "500000000" }))).toHaveLength(1);
+    expect(store.list()).toHaveLength(1);
+  });
+
+  it("accepts a repeat of a split intent with the same total", () => {
+    const { executor } = setup({ cfg: { defaultPerTransferCap: 200_000_000n } });
+    executor.submit(intent({ amount: "500000000" }));
+    expect(executor.submit(intent({ amount: "500000000" }))).toHaveLength(3);
+  });
+
   it("honours a lower configured per-transfer cap", () => {
     const { executor } = setup({ cfg: { defaultPerTransferCap: 200_000_000n } });
     expect(executor.submit(intent({ amount: "500000000" }))).toHaveLength(3);
