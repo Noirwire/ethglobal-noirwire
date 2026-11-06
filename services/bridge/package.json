@@ -1,0 +1,26 @@
+{
+  "name": "@noirwire/bridge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "check-types": "tsc --noEmit",
+    "start": "tsx src/main.ts",
+    "local-e2e": "tsx src/local-e2e.ts"
+  },
+  "dependencies": {
+    "@noirwire/shared": "workspace:*",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4",
+    "viem": "^2.38.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "26.4.1",
+    "tsx": "^4.20.6",
+    "typescript": "7.0.2",
+    "vitest": "^4.0.8"
+  }
+}
