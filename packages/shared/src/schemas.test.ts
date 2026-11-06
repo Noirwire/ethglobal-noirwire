@@ -103,6 +103,11 @@ describe("bridge transfers", () => {
     expect(bridgeTransfer.parse(transfer).state).toBe("burned");
   });
 
+  it("keeps the released flag when present", () => {
+    expect(bridgeTransfer.parse({ ...transfer, released: true }).released).toBe(true);
+    expect(bridgeTransfer.parse(transfer).released).toBeUndefined();
+  });
+
   it("rejects a negative amount", () => {
     expect(() => bridgeTransfer.parse({ ...transfer, grossAmount: "-5" })).toThrow();
   });

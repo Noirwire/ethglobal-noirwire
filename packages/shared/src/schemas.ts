@@ -114,6 +114,7 @@ export const bridgeTransfer = z.object({
   creditTx: z.string().optional(),
   attester: z.enum(["circle-iris", "local-test-attester"]),
   closeId: z.number().int().nonnegative().optional(),
+  released: z.boolean().optional(),
   error: z.string().optional(),
   updatedAt: isoTime,
 });
