@@ -83,15 +83,21 @@ cmd_migrate() {
 # run (-e VAR=role | -f VAR=role)... -- command args
 # -e puts the key in the child's environment. -f puts a /dev/fd/N path in it (single read), no file is written.
 cmd_run() {
-  local fd=3 spec var role
+  local fd=3 spec var role key
   local exports=()
   while [[ $# -gt 0 && "$1" != -- ]]; do
     [[ $# -ge 2 ]] || die "run: $1 needs VAR=role"
     spec="$2"; var="${spec%%=*}"; role="${spec#*=}"
+    [[ "$var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "run: bad variable name in $1"
     valid_role "$role" || die "unknown role: $role"
     has "$role" || die "no keychain entry for $role in service $SVC (human runs: make keys-init)"
     case "$1" in
-      -e) exports+=("$var=$(read_key "$role")") ;;
+      -e)
+        key="$(read_key "$role")" || die "could not read the key for $role"
+        [[ -n "$key" ]] || die "empty key for $role"
+        exports+=("$var=$key")
+        key=""
+        ;;
       -f)
         [[ $fd -le 8 ]] || die "run: too many -f keys"
         eval "exec $fd< <(read_key \"\$role\")"
