@@ -5,7 +5,7 @@ import { inspectPreparedDeposit } from "./prepared";
 
 const BRIDGE_TIMEOUT_MS = 15_000;
 
-type Reply = { status: number; body: unknown };
+export type Reply = { status: number; body: unknown };
 
 const prepareBody = z.object({
   owner: z.string().min(32).max(44),
@@ -17,9 +17,9 @@ const devBody = z.object({ amount: z.string().regex(/^[1-9]\d*$/).optional() });
 
 export const json = (reply: Reply): Response => Response.json(reply.body, { status: reply.status, headers: { "cache-control": "no-store" } });
 
-const fail = (status: number, error: string): Reply => ({ status, body: { error } });
+export const fail = (status: number, error: string): Reply => ({ status, body: { error } });
 
-async function callBridge(method: "GET" | "POST", path: string, body?: unknown): Promise<Reply> {
+export async function callBridge(method: "GET" | "POST", path: string, body?: unknown): Promise<Reply> {
   const { bridgeUrl } = loadEnv();
   const token = process.env.BRIDGE_API_TOKEN;
   try {
@@ -41,7 +41,7 @@ async function callBridge(method: "GET" | "POST", path: string, body?: unknown):
   }
 }
 
-async function readJson(request: Request): Promise<unknown> {
+export async function readJson(request: Request): Promise<unknown> {
   try {
     return await request.json();
   } catch {

@@ -34,5 +34,20 @@ export const prepareSolanaDeposit = (input: { owner: string; amount: string; ben
 export const submitSolanaBurn = (signature: string) =>
   call<{ transfer: { transferId: string } }>("/api/deposit/solana/submitted", { signature });
 
+export interface EvmStatus {
+  available: boolean;
+  reason?: string;
+}
+
+export type AttestationReply = { state: "pending" } | { state: "complete"; message: `0x${string}`; attestation: `0x${string}` };
+
+export const fetchEvmStatus = () => call<EvmStatus>("/api/deposit/evm/status");
+
+export const fetchEvmFee = (domain: number) => call<{ tiers: { finalityThreshold: number; minimumFee: number }[] }>(`/api/deposit/evm/fee?domain=${domain}`);
+
+export const fetchAttestation = (domain: number, tx: string) => call<AttestationReply>(`/api/deposit/evm/attestation?domain=${domain}&tx=${tx}`);
+
+export const submitEvmBurn = (domain: number, txHash: string) => call<unknown>("/api/deposit/evm/submitted", { domain, txHash });
+
 export const simulateLocalDeposit = (amount: string) =>
   call<{ transfers: { transferId: string }[]; beneficiary: string }>("/api/deposit/local", { amount });

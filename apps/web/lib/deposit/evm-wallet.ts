@@ -1,3 +1,4 @@
+import { EVM_FUNDING_SOURCES, type EvmFundingSourceId } from "@noirwire/shared";
 import { getAddress, numberToHex, type Address } from "viem";
 import { ARC_NATIVE_CURRENCY, type ArcConfig } from "./config";
 
@@ -21,6 +22,28 @@ export async function requestAccounts(provider: Eip1193Provider): Promise<Addres
 
 export async function walletChainId(provider: Eip1193Provider): Promise<number> {
   return Number(await provider.request({ method: "eth_chainId" }));
+}
+
+export async function switchToSource(provider: Eip1193Provider, id: EvmFundingSourceId): Promise<void> {
+  const source = EVM_FUNDING_SOURCES[id];
+  const chainId = numberToHex(source.chainId);
+  try {
+    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
+  } catch (error) {
+    if ((error as { code?: number }).code !== 4902) throw error;
+    await provider.request({
+      method: "wallet_addEthereumChain",
+      params: [
+        {
+          chainId,
+          chainName: source.label,
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: [source.rpcUrl],
+          blockExplorerUrls: [source.explorer],
+        },
+      ],
+    });
+  }
 }
 
 export async function switchToArc(provider: Eip1193Provider, config: ArcConfig): Promise<void> {

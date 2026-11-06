@@ -1,10 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { ArcDoor } from "./ArcDoor";
-import { SolanaDoor } from "./SolanaDoor";
-
-type Door = "arc" | "solana";
+import { Doors } from "./Doors";
 
 const DepositContext = createContext<{ open: () => void } | null>(null);
 
@@ -14,15 +12,8 @@ export function useDeposit(): { open: () => void } {
   return value;
 }
 
-const DOORS: { id: Door; title: string; note: string }[] = [
-  { id: "arc", title: "Deposit from Arc", note: "Your EVM wallet approves USDC and requests the deposit directly." },
-  { id: "solana", title: "Deposit from Solana", note: "Burn USDC on Solana devnet; CCTP delivers it to the vault on Arc." },
-];
-
 export function DepositProvider({ children }: { children: React.ReactNode }) {
   const [isOpen, setOpen] = useState(false);
-  const [door, setDoor] = useState<Door | null>(null);
-  const [visited, setVisited] = useState({ arc: false, solana: false });
   const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -52,39 +43,16 @@ export function DepositProvider({ children }: { children: React.ReactNode }) {
               <h2 id="deposit-title" className="text-ink-strong text-[18px] font-semibold tracking-tight">
                 Deposit USDC
               </h2>
-              <p className="text-faint mt-1 text-label">Requests are settled at the next close. You hold shares once it settles.</p>
+              <p className="text-faint mt-1 text-label">Test USDC only. Requests are settled at the next close. You hold shares once it settles.</p>
+              <Link href="/fund" onClick={() => setOpen(false)} className="text-dim hover:text-ink-strong mt-2 inline-block text-label underline underline-offset-4">
+                Open the funding page
+              </Link>
             </div>
             <button type="button" onClick={() => setOpen(false)} className="text-dim hover:text-ink-strong text-label" aria-label="Close deposit">
               Close
             </button>
           </div>
-
-          {door === null && (
-            <ul className="space-y-2">
-              {DOORS.map((entry) => (
-                <li key={entry.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDoor(entry.id);
-                      setVisited((seen) => ({ ...seen, [entry.id]: true }));
-                    }}
-                    className="border-line hover:border-line-strong w-full rounded-lg border px-4 py-3 text-left"
-                  >
-                    <span className="text-ink-strong block text-body">{entry.title}</span>
-                    <span className="text-faint block text-label">{entry.note}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {door !== null && (
-            <button type="button" onClick={() => setDoor(null)} className="text-dim hover:text-ink-strong text-label underline underline-offset-4">
-              All options
-            </button>
-          )}
-          <div hidden={door !== "arc"}>{visited.arc ? <ArcDoor /> : null}</div>
-          <div hidden={door !== "solana"}>{visited.solana ? <SolanaDoor /> : null}</div>
+          <Doors />
         </div>
       </dialog>
     </DepositContext.Provider>

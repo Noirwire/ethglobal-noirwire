@@ -11,6 +11,7 @@ export interface ArcConfig {
   rpcUrl: string;
   vault: Address;
   usdc: Address;
+  hookExecutor: Address | null;
   explorer: string | null;
 }
 
@@ -21,6 +22,7 @@ interface PublicEnv {
   rpcUrl?: string;
   vault?: string;
   usdc?: string;
+  hookExecutor?: string;
 }
 
 export function readPublicEnv(): PublicEnv {
@@ -29,6 +31,7 @@ export function readPublicEnv(): PublicEnv {
     rpcUrl: process.env.NEXT_PUBLIC_ARC_RPC_URL,
     vault: process.env.NEXT_PUBLIC_SHARE_VAULT_ADDRESS,
     usdc: process.env.NEXT_PUBLIC_ARC_USDC_ADDRESS,
+    hookExecutor: process.env.NEXT_PUBLIC_HOOK_EXECUTOR_ADDRESS,
   };
 }
 
@@ -40,7 +43,10 @@ export function parseArcConfig(env: PublicEnv): ArcConfigResult {
   if (!isAddress(vault)) return { ok: false, reason: "NEXT_PUBLIC_SHARE_VAULT_ADDRESS is not an address" };
   const usdc = env.usdc?.trim() || ARC_TESTNET_USDC;
   if (!isAddress(usdc)) return { ok: false, reason: "NEXT_PUBLIC_ARC_USDC_ADDRESS is not an address" };
-  const isArcTestnet = chainId === NETWORKS.arcTestnet.chainId;
+  const hookText = env.hookExecutor?.trim();
+  const hookExecutor = hookText ? (isAddress(hookText) ? hookText : undefined) : null;
+  if (hookExecutor === undefined) return { ok: false, reason: "NEXT_PUBLIC_HOOK_EXECUTOR_ADDRESS is not an address" };
+  const isArcTestnet =chainId === NETWORKS.arcTestnet.chainId;
   return {
     ok: true,
     config: {
@@ -49,6 +55,7 @@ export function parseArcConfig(env: PublicEnv): ArcConfigResult {
       rpcUrl: env.rpcUrl?.trim() || NETWORKS.arcTestnet.rpcUrl,
       vault,
       usdc,
+      hookExecutor,
       explorer: isArcTestnet ? NETWORKS.arcTestnet.explorer : null,
     },
   };

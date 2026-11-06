@@ -5,11 +5,13 @@ import { usePathname } from "next/navigation";
 import { useDeposit } from "./deposit/DepositProvider";
 import { useLive } from "./LiveProvider";
 import type { HedgerStatus } from "@/lib/residual";
+import { TRADE_URL } from "@/lib/trade-url";
 
 const LINKS = [
   { href: "/", label: "State" },
   { href: "/flow", label: "Money" },
   { href: "/nav", label: "Proof" },
+  { href: "/fund", label: "Fund" },
 ] as const;
 
 const STATUS_DOT: Record<HedgerStatus, string> = {
@@ -113,9 +115,16 @@ function NavLinks({ pathname }: { pathname: string }) {
           </Link>
         );
       })}
-      <button type="button" onClick={open} className="text-dim hover:text-ink-strong text-body">
-        Deposit
-      </button>
+      {!pathname.startsWith("/fund") && (
+        <button type="button" onClick={open} className="text-dim hover:text-ink-strong text-body">
+          Deposit
+        </button>
+      )}
+      {TRADE_URL && (
+        <a href={TRADE_URL} target="_blank" rel="noreferrer" className="text-dim hover:text-ink-strong text-body">
+          Trade<span className="sr-only"> (opens in a new tab)</span>
+        </a>
+      )}
     </>
   );
 }

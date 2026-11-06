@@ -31,6 +31,40 @@ export const NETWORKS = {
   },
 } as const;
 
+export const CCTP_TESTNET_CONTRACTS = {
+  tokenMessengerV2: "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
+  messageTransmitterV2: "0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275",
+} as const;
+
+export const EVM_FUNDING_SOURCES = {
+  ethereumSepolia: {
+    label: "Ethereum Sepolia",
+    chainId: 11155111,
+    rpcUrl: "https://ethereum-sepolia-rpc.publicnode.com",
+    explorer: "https://sepolia.etherscan.io",
+    cctpDomain: CCTP_DOMAINS.ethereum,
+    usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+  },
+  baseSepolia: {
+    label: "Base Sepolia",
+    chainId: 84532,
+    rpcUrl: "https://sepolia.base.org",
+    explorer: "https://sepolia.basescan.org",
+    cctpDomain: CCTP_DOMAINS.base,
+    usdc: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+  },
+  arbitrumSepolia: {
+    label: "Arbitrum Sepolia",
+    chainId: 421614,
+    rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc",
+    explorer: "https://sepolia.arbiscan.io",
+    cctpDomain: CCTP_DOMAINS.arbitrum,
+    usdc: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+  },
+} as const;
+
+export type EvmFundingSourceId = keyof typeof EVM_FUNDING_SOURCES;
+
 export const LOCAL_NETWORKS = {
   arcLocal: { chainId: 31337, rpcUrl: "http://127.0.0.1:8545", cctpDomain: CCTP_DOMAINS.arc },
   aquaFork: { chainId: 42161, rpcUrl: "http://127.0.0.1:8546", cctpDomain: CCTP_DOMAINS.arbitrum },
