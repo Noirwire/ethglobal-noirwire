@@ -13,12 +13,18 @@ import {
 } from "viem";
 import { generatePrivateKey } from "viem/accounts";
 import { foundry } from "viem/chains";
-import type { DeliverResult, RouteAdapter } from "./executor.ts";
-import { TreasuryExecutor } from "./executor.ts";
+import { TreasuryExecutor, type DeliverResult, type RouteAdapter } from "./executor.ts";
 import { EvmDriver, hookExecutorAbi } from "./evm.ts";
 import { encodeVaultHookData } from "./hooks.ts";
 import { LocalAttester } from "./iris.ts";
-import { addressToBytes32, encodeBurnBody, encodeMessage } from "./message.ts";
+import {
+  addressToBytes32,
+  BURN_BODY_VERSION,
+  encodeBurnBody,
+  encodeMessage,
+  FINALITY_FAST,
+  MESSAGE_VERSION,
+} from "./message.ts";
 import { TransferStore } from "./transfers.ts";
 
 const VAULT_DIR = fileURLToPath(new URL("../../../contracts/vault/", import.meta.url));
@@ -93,10 +99,8 @@ class LocalSolanaArcAdapter implements RouteAdapter {
     return { status: "done", state: "hook-executed", tx };
   }
 
-  async hookOutcome(transfer: BridgeTransfer): Promise<"vault-credited" | "claimable"> {
-    const outcome = await this.evm.hookOutcome(transfer.mintTx as Hex);
-    if (outcome === "quarantined") throw new Error("deposit quarantined");
-    return outcome;
+  hookOutcome(transfer: BridgeTransfer): Promise<"vault-credited" | "claimable"> {
+    return this.evm.creditedHookOutcome(transfer.mintTx as Hex);
   }
 }
 
@@ -132,7 +136,7 @@ async function deployFromArtifacts(
   const transmitter = await deploy(artifact("MockMessageTransmitterV2", "MockMessageTransmitterV2"), [
     usdc,
     attester,
-    26,
+    CCTP_DOMAINS.arc,
     deployer,
     transmitterOwner,
   ]);
@@ -199,38 +203,38 @@ export async function runLocalE2e(rpcUrl: string = LOCAL_NETWORKS.arcLocal.rpcUr
 
   const read = <T extends "sourceTokenMessenger" | "sourceBurnToken" | "localTokenMessenger">(functionName: T) =>
     publicClient.readContract({ address: hookExecutor, abi: hookExecutorAbi, functionName });
-  const [sender, burnToken, recipient, localDomain] = await Promise.all([
+  const [sender, burnToken, recipient] = await Promise.all([
     read("sourceTokenMessenger"),
     read("sourceBurnToken"),
     read("localTokenMessenger"),
-    Promise.resolve(CCTP_DOMAINS.arc as number),
   ]);
 
   const fee = 500n;
   const executorWord = addressToBytes32(hookExecutor);
+  const solanaDepositor: Hex = `0x${"cd".repeat(32)}`;
   const buildMessage = (amount: bigint, nonce: Hex): Hex =>
     encodeMessage({
-      version: 1,
-      sourceDomain: 5,
-      destinationDomain: localDomain,
+      version: MESSAGE_VERSION,
+      sourceDomain: CCTP_DOMAINS.solana,
+      destinationDomain: CCTP_DOMAINS.arc,
       nonce,
       sender,
       recipient,
       destinationCaller: executorWord,
-      minFinalityThreshold: 1000,
-      finalityThresholdExecuted: 1000,
+      minFinalityThreshold: FINALITY_FAST,
+      finalityThresholdExecuted: FINALITY_FAST,
       body: encodeBurnBody({
-        version: 1,
+        version: BURN_BODY_VERSION,
         burnToken,
         mintRecipient: executorWord,
         amount,
-        messageSender: `0x${"cd".repeat(32)}`,
+        messageSender: solanaDepositor,
         maxFee: fee,
         feeExecuted: fee,
         expirationBlock: 0n,
         hookData: encodeVaultHookData({
           beneficiary,
-          solanaDepositor: `0x${"cd".repeat(32)}`,
+          solanaDepositor,
           deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
         }),
       }),

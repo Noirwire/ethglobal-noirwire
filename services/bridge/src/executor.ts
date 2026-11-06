@@ -146,51 +146,12 @@ export class TreasuryExecutor {
   private async run(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
     const id = transfer.transferId;
     switch (transfer.state) {
-      case "requested": {
-        if (!this.store.canBurn(id)) {
-          return { changed: false, pending: "burn outcome unknown, verify on chain before retrying" };
-        }
-        if (transfer.route === "arc-hypercore" && adapter.destinationBalance) {
-          const ahead = this.store
-            .inFlight()
-            .some((t) => t.route === "arc-hypercore" && t.transferId !== id && t.state !== "requested");
-          if (ahead) return { changed: false, pending: "waiting for the previous HyperCore transfer to credit" };
-          const baseline = await adapter.destinationBalance(transfer);
-          this.store.setMeta(id, { baselineBalance: baseline.toString() });
-        }
-        this.store.beginBurn(id);
-        const { burnTx } = await adapter.burn(transfer);
-        this.store.transition(id, "burned", { burnTx });
-        return { changed: true };
-      }
-      case "burned": {
-        const message = await adapter.messageFor(transfer);
-        const result = await this.attester.fetchAttestation({
-          sourceDomain: transfer.sourceDomain,
-          txHash: transfer.burnTx as string,
-          message,
-        });
-        if (result.status !== "complete" || !result.message || !result.attestation) {
-          return { changed: false, pending: "waiting for attestation" };
-        }
-        const header = decodeMessage(result.message);
-        const body = decodeBurnBody(header.body);
-        this.store.transition(id, "attested", {
-          messageHash: messageHash(result.message),
-          cctpNonce: header.nonce,
-          attestation: result.attestation,
-          feeExecuted: body.feeExecuted.toString(),
-          netMinted: (body.amount - body.feeExecuted).toString(),
-        });
-        return { changed: true };
-      }
-      case "attested": {
-        const message = (await adapter.messageFor(transfer)) ?? (await this.messageFromAttester(transfer));
-        const delivered = await adapter.deliver(transfer, message, transfer.attestation as Hex);
-        if (delivered.status === "pending") return { changed: false, pending: delivered.reason };
-        this.store.transition(id, delivered.state, { mintTx: delivered.tx });
-        return { changed: true };
-      }
+      case "requested":
+        return this.burn(transfer, adapter);
+      case "burned":
+        return this.attest(transfer, adapter);
+      case "attested":
+        return this.deliver(transfer, adapter);
       case "minted": {
         if (transfer.route !== "arc-solana") return { changed: false, pending: "minted with no next step on this route" };
         this.store.transition(id, "credited", { creditTx: transfer.mintTx });
@@ -209,6 +170,55 @@ export class TreasuryExecutor {
     }
   }
 
+  private async burn(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
+    const id = transfer.transferId;
+    if (!this.store.canBurn(id)) {
+      return { changed: false, pending: "burn outcome unknown, verify on chain before retrying" };
+    }
+    if (transfer.route === "arc-hypercore" && adapter.destinationBalance) {
+      const ahead = this.store
+        .inFlight()
+        .some((t) => t.route === "arc-hypercore" && t.transferId !== id && t.state !== "requested");
+      if (ahead) return { changed: false, pending: "waiting for the previous HyperCore transfer to credit" };
+      const baseline = await adapter.destinationBalance(transfer);
+      this.store.setMeta(id, { baselineBalance: baseline.toString() });
+    }
+    this.store.beginBurn(id);
+    const { burnTx } = await adapter.burn(transfer);
+    this.store.transition(id, "burned", { burnTx });
+    return { changed: true };
+  }
+
+  private async attest(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
+    const message = await adapter.messageFor(transfer);
+    const result = await this.attester.fetchAttestation({
+      sourceDomain: transfer.sourceDomain,
+      txHash: transfer.burnTx as string,
+      message,
+    });
+    if (result.status !== "complete" || !result.message || !result.attestation) {
+      return { changed: false, pending: "waiting for attestation" };
+    }
+    const header = decodeMessage(result.message);
+    const body = decodeBurnBody(header.body);
+    this.store.transition(transfer.transferId, "attested", {
+      messageHash: messageHash(result.message),
+      cctpNonce: header.nonce,
+      attestation: result.attestation,
+      feeExecuted: body.feeExecuted.toString(),
+      netMinted: (body.amount - body.feeExecuted).toString(),
+    });
+    return { changed: true };
+  }
+
+  private async deliver(transfer: BridgeTransfer, adapter: RouteAdapter): Promise<StepResult> {
+    const message = (await adapter.messageFor(transfer)) ?? (await this.messageFromAttester(transfer));
+    const delivered = await adapter.deliver(transfer, message, transfer.attestation as Hex);
+    if (delivered.status === "pending") return { changed: false, pending: delivered.reason };
+    this.store.transition(transfer.transferId, delivered.state, { mintTx: delivered.tx });
+    return { changed: true };
+  }
+
   private async messageFromAttester(transfer: BridgeTransfer): Promise<Hex> {
     const result = await this.attester.fetchAttestation({
       sourceDomain: transfer.sourceDomain,
@@ -222,7 +232,8 @@ export class TreasuryExecutor {
     if (!adapter.destinationBalance) return { changed: false, pending: "no HyperCore balance reader" };
     const baseline = this.store.meta(transfer.transferId)?.baselineBalance;
     if (baseline === undefined) return { changed: false, pending: "no baseline balance recorded" };
-    const expected = BigInt(transfer.netMinted ?? BigInt(transfer.grossAmount) - BigInt(transfer.maxFee));
+    const expected =
+      transfer.netMinted !== undefined ? BigInt(transfer.netMinted) : BigInt(transfer.grossAmount) - BigInt(transfer.maxFee);
     const balance = await adapter.destinationBalance(transfer);
     if (balance - BigInt(baseline) < expected) {
       return { changed: false, pending: "forwarded, HyperCore balance has not risen yet" };

@@ -12,6 +12,7 @@ import {
 import { hexToBytes, type Hex } from "viem";
 import messageTransmitterIdl from "../idl/message_transmitter_v2.json" with { type: "json" };
 import tokenMessengerMinterIdl from "../idl/token_messenger_minter_v2.json" with { type: "json" };
+import { SOLANA_DEVNET_USDC_MINT } from "./addresses.ts";
 import { decodeMessage } from "./message.ts";
 
 export const SOLANA_PROGRAMS = {
@@ -19,7 +20,7 @@ export const SOLANA_PROGRAMS = {
   tokenMessengerMinterV2: new PublicKey("CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe"),
 } as const;
 
-export const SOLANA_DEVNET_USDC = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU");
+export const SOLANA_DEVNET_USDC = new PublicKey(SOLANA_DEVNET_USDC_MINT);
 
 type IdlAccount = { name: string; writable?: boolean; signer?: boolean; address?: string };
 type IdlInstruction = { name: string; discriminator: number[]; accounts: IdlAccount[] };
@@ -40,12 +41,6 @@ const pda = (programId: PublicKey, ...seeds: (string | Uint8Array)[]): PublicKey
     seeds.map((seed) => (typeof seed === "string" ? Buffer.from(seed) : seed)),
     programId,
   )[0];
-
-export function bytes32ToPublicKey(value: Hex): PublicKey {
-  const bytes = hexToBytes(value);
-  if (bytes.length !== 32) throw new Error("expected 32 bytes");
-  return new PublicKey(bytes);
-}
 
 export function derivePdas(usdcMint: PublicKey, remoteDomain: number) {
   const tmm = SOLANA_PROGRAMS.tokenMessengerMinterV2;
@@ -91,7 +86,6 @@ function borshBytes(value: Uint8Array): Buffer {
 
 export type SolanaBurnParams = {
   owner: PublicKey;
-  eventRentPayer?: PublicKey;
   burnTokenAccount: PublicKey;
   messageSentEventData: PublicKey;
   usdcMint?: PublicKey;
@@ -104,7 +98,7 @@ export type SolanaBurnParams = {
   hookData?: Hex;
 };
 
-export function encodeBurnData(params: Pick<SolanaBurnParams, "amount" | "destinationDomain" | "mintRecipient" | "destinationCaller" | "maxFee" | "minFinalityThreshold" | "hookData">): Buffer {
+export function encodeBurnData(params: Omit<SolanaBurnParams, "owner" | "burnTokenAccount" | "messageSentEventData" | "usdcMint">): Buffer {
   const head = [
     u64(params.amount),
     u32(params.destinationDomain),
@@ -136,7 +130,7 @@ export function buildDepositForBurnInstruction(params: SolanaBurnParams): Transa
   const instruction = params.hookData === undefined ? burnIx : burnWithHookIx;
   const keys = metasFor(instruction, {
     owner: params.owner,
-    event_rent_payer: params.eventRentPayer ?? params.owner,
+    event_rent_payer: params.owner,
     sender_authority_pda: pdas.senderAuthority,
     burn_token_account: params.burnTokenAccount,
     denylist_account: denylistPda(params.owner),
@@ -212,7 +206,8 @@ export function buildReceiveMessageInstruction(params: SolanaReceiveParams): Tra
   });
 }
 
-const FEE_RECIPIENT_OFFSET = 8 + 32 * 3 + 4 + 1;
+export const ANCHOR_DISCRIMINATOR_BYTES = 8;
+const FEE_RECIPIENT_OFFSET = ANCHOR_DISCRIMINATOR_BYTES + 32 * 3 + 4 + 1;
 
 export async function readFeeRecipient(connection: Connection, usdcMint: PublicKey = SOLANA_DEVNET_USDC): Promise<PublicKey> {
   const { tokenMessenger } = derivePdas(usdcMint, 0);

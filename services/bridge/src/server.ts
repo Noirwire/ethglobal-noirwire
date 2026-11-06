@@ -6,8 +6,10 @@ import type { TransferStore } from "./transfers.ts";
 
 export const BRIDGE_PORT = 8702;
 
+const ALLOW_ORIGIN = { "access-control-allow-origin": "*" };
+
 function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "*" });
+  res.writeHead(status, { "content-type": "application/json", ...ALLOW_ORIGIN });
   res.end(JSON.stringify(body));
 }
 
@@ -26,7 +28,7 @@ export function createBridgeServer(store: TransferStore, executor: TreasuryExecu
     const url = new URL(req.url ?? "/", "http://localhost");
     try {
       if (req.method === "OPTIONS") {
-        res.writeHead(204, { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type" });
+        res.writeHead(204, { ...ALLOW_ORIGIN, "access-control-allow-headers": "content-type" });
         return res.end();
       }
       if (req.method === "GET" && url.pathname === "/v1/transfers") {
@@ -50,7 +52,7 @@ export function createBridgeServer(store: TransferStore, executor: TreasuryExecu
           "content-type": "text/event-stream",
           "cache-control": "no-cache",
           connection: "keep-alive",
-          "access-control-allow-origin": "*",
+          ...ALLOW_ORIGIN,
         });
         res.write(": connected\n\n");
         const off = store.onChange((transfer) => res.write(`data: ${JSON.stringify(transferEvent(transfer))}\n\n`));

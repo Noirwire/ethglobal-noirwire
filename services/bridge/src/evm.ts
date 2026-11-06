@@ -16,7 +16,6 @@ export const tokenMessengerV2Abi = parseAbi([
 ]);
 
 export const messageTransmitterV2Abi = parseAbi([
-  "function receiveMessage(bytes message, bytes attestation) returns (bool success)",
   "event MessageSent(bytes message)",
 ]);
 
@@ -26,8 +25,6 @@ export const hookExecutorAbi = parseAbi([
   "function sourceTokenMessenger() view returns (bytes32)",
   "function sourceBurnToken() view returns (bytes32)",
   "function localTokenMessenger() view returns (bytes32)",
-  "function processed(bytes32 nonce) view returns (bool)",
-  "function claimable(address beneficiary) view returns (uint256)",
   "event DepositForwarded(bytes32 indexed nonce, address indexed beneficiary, bytes32 solanaDepositor, uint256 amount)",
   "event DepositHeld(bytes32 indexed nonce, address indexed beneficiary, bytes32 solanaDepositor, uint256 amount, bytes32 reason)",
   "event DepositQuarantined(bytes32 indexed nonce, uint256 amount)",
@@ -92,17 +89,6 @@ export class EvmDriver {
     return extractMessageSent(receipt.logs, this.addresses.messageTransmitter);
   }
 
-  async receiveMessage(message: Hex, attestation: Hex): Promise<Hex> {
-    const hash = await this.walletClient.writeContract({
-      address: this.addresses.messageTransmitter,
-      abi: messageTransmitterV2Abi,
-      functionName: "receiveMessage",
-      args: [message, attestation],
-    });
-    await this.expectSuccess(hash);
-    return hash;
-  }
-
   async relayThroughHookExecutor(message: Hex, attestation: Hex): Promise<Hex> {
     const executor = this.addresses.hookExecutor;
     if (!executor) throw new Error("no HookExecutor configured");
@@ -127,13 +113,10 @@ export class EvmDriver {
     throw new Error(`no HookExecutor outcome event in ${txHash}`);
   }
 
-  balanceOf(owner: Hex): Promise<bigint> {
-    return this.publicClient.readContract({
-      address: this.addresses.usdc,
-      abi: erc20Abi,
-      functionName: "balanceOf",
-      args: [owner],
-    });
+  async creditedHookOutcome(txHash: Hex): Promise<"vault-credited" | "claimable"> {
+    const outcome = await this.hookOutcome(txHash);
+    if (outcome === "quarantined") throw new Error("deposit quarantined by the HookExecutor, owner action needed");
+    return outcome;
   }
 
   private async ensureAllowance(amount: bigint): Promise<void> {

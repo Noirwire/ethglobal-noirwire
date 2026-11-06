@@ -1,8 +1,9 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CCTP_DOMAINS } from "@noirwire/shared";
 import { padHex, toHex, type Hex } from "viem";
-import { encodeBurnBody, encodeMessage } from "../src/message.ts";
+import { BURN_BODY_VERSION, encodeBurnBody, encodeMessage, FINALITY_FAST, MESSAGE_VERSION } from "../src/message.ts";
 import type { NewTransfer } from "../src/transfers.ts";
 
 export function tempJournal(): string {
@@ -40,17 +41,17 @@ export function buildBurnMessage(
 ): Hex {
   const mintRecipient = overrides.mintRecipient ?? word(0xabc);
   return encodeMessage({
-    version: 1,
-    sourceDomain: overrides.sourceDomain ?? 5,
-    destinationDomain: overrides.destinationDomain ?? 26,
+    version: MESSAGE_VERSION,
+    sourceDomain: overrides.sourceDomain ?? CCTP_DOMAINS.solana,
+    destinationDomain: overrides.destinationDomain ?? CCTP_DOMAINS.arc,
     nonce: overrides.nonce ?? word(1),
     sender: overrides.sender ?? word(0x111),
     recipient: overrides.recipient ?? word(0x222),
     destinationCaller: overrides.destinationCaller ?? mintRecipient,
-    minFinalityThreshold: 1000,
-    finalityThresholdExecuted: 1000,
+    minFinalityThreshold: FINALITY_FAST,
+    finalityThresholdExecuted: FINALITY_FAST,
     body: encodeBurnBody({
-      version: 1,
+      version: BURN_BODY_VERSION,
       burnToken: overrides.burnToken ?? word(0x333),
       mintRecipient,
       amount: overrides.amount ?? 5_000_000n,
@@ -67,8 +68,8 @@ export function newTransfer(overrides: Partial<NewTransfer> = {}): NewTransfer {
   return {
     transferId: "t1",
     route: "solana-arc",
-    sourceDomain: 5,
-    destinationDomain: 26,
+    sourceDomain: CCTP_DOMAINS.solana,
+    destinationDomain: CCTP_DOMAINS.arc,
     grossAmount: "5000000",
     maxFee: "1000",
     attester: "local-test-attester",

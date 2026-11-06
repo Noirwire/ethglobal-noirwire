@@ -1,22 +1,39 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { Connection, Keypair, PublicKey, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import { CCTP_DOMAINS, NETWORKS } from "@noirwire/shared";
 import { bytesToHex, hexToBytes, keccak256, padHex, toHex, type Hex } from "viem";
-import { SOLANA_DEVNET } from "./addresses.ts";
+import { ARC_TESTNET_USDC } from "./addresses.ts";
 import { encodeVaultHookData } from "./hooks.ts";
 import { LocalAttester } from "./iris.ts";
-import { encodeBurnBody, encodeMessage } from "./message.ts";
-import { SOLANA_PROGRAMS, SolanaDriver, derivePdas, readFeeRecipient, tokenPairPda } from "./solana.ts";
+import {
+  BURN_BODY_VERSION,
+  encodeBurnBody,
+  encodeMessage,
+  FINALITY_FAST,
+  MESSAGE_VERSION,
+  ZERO_BYTES32,
+} from "./message.ts";
+import {
+  ANCHOR_DISCRIMINATOR_BYTES,
+  SOLANA_DEVNET_USDC,
+  SOLANA_PROGRAMS,
+  SolanaDriver,
+  derivePdas,
+  readFeeRecipient,
+  tokenPairPda,
+} from "./solana.ts";
 import { generatePrivateKey } from "viem/accounts";
 
-export const ARC_USDC_ON_ARC: Hex = "0x3600000000000000000000000000000000000000";
-const ARC_DOMAIN = 26;
-const ATTESTER_VEC_OFFSET = 8 + 32 * 4 + 1 + 4 + 4 + 4;
-const MESSAGE_SENT_LENGTH_OFFSET = 8 + 32 + 8;
+const ARC_USDC_WORD = padHex(ARC_TESTNET_USDC, { size: 32 });
+const ATTESTER_THRESHOLD_OFFSET = ANCHOR_DISCRIMINATOR_BYTES + 32 * 4 + 1 + 4 + 4;
+const ATTESTER_VEC_OFFSET = ATTESTER_THRESHOLD_OFFSET + 4;
+const REMOTE_TOKEN_MESSENGER_ADDRESS_OFFSET = ANCHOR_DISCRIMINATOR_BYTES + 4;
+const MESSAGE_SENT_LENGTH_OFFSET = ANCHOR_DISCRIMINATOR_BYTES + 32 + 8;
 
 type CloneSetup = { stop: () => void; connection: Connection; rpcUrl: string };
 
@@ -36,7 +53,7 @@ function accountJson(address: PublicKey, info: { lamports: number; data: Buffer;
 
 export function patchMessageTransmitter(data: Buffer, attesterAddresses: Hex[]): Buffer {
   const patched = Buffer.from(data);
-  patched.writeUInt32LE(1, ATTESTER_VEC_OFFSET - 4);
+  patched.writeUInt32LE(1, ATTESTER_THRESHOLD_OFFSET);
   const count = patched.readUInt32LE(ATTESTER_VEC_OFFSET);
   if (attesterAddresses.length > count) throw new Error("the cloned account has fewer attester slots than requested");
   for (let slot = 0; slot < count; slot++) {
@@ -54,12 +71,11 @@ export async function startClonedValidator(options: {
 }): Promise<CloneSetup> {
   const rpcPort = options.rpcPort ?? 8901;
   const faucetPort = options.faucetPort ?? 9901;
-  const devnet = new Connection(options.devnetRpc ?? SOLANA_DEVNET.rpcUrl, "confirmed");
-  const usdc = new PublicKey(SOLANA_DEVNET.usdcMint);
-  const pdas = derivePdas(usdc, ARC_DOMAIN);
-  const arcPair = tokenPairPda(ARC_DOMAIN, padHex(ARC_USDC_ON_ARC, { size: 32 }));
-  const feeRecipient = await readFeeRecipient(devnet, usdc);
-  const feeRecipientToken = getAssociatedTokenAddressSync(usdc, feeRecipient, true);
+  const devnetRpc = options.devnetRpc ?? NETWORKS.solanaDevnet.rpcUrl;
+  const devnet = new Connection(devnetRpc, "confirmed");
+  const usdc = SOLANA_DEVNET_USDC;
+  const pdas = derivePdas(usdc, CCTP_DOMAINS.arc);
+  const arcPair = tokenPairPda(CCTP_DOMAINS.arc, ARC_USDC_WORD);
 
   const dir = mkdtempSync(join(tmpdir(), "bridge-solana-"));
   const transmitter = await devnet.getAccountInfo(pdas.messageTransmitter);
@@ -88,7 +104,7 @@ export async function startClonedValidator(options: {
     "--faucet-port",
     String(faucetPort),
     "--url",
-    options.devnetRpc ?? SOLANA_DEVNET.rpcUrl,
+    devnetRpc,
     "--clone-upgradeable-program",
     SOLANA_PROGRAMS.messageTransmitterV2.toBase58(),
     "--clone-upgradeable-program",
@@ -98,7 +114,6 @@ export async function startClonedValidator(options: {
     pdas.messageTransmitter.toBase58(),
     overrideFile,
   ];
-  mkdirSync(dir, { recursive: true });
   const child: ChildProcess = spawn("solana-test-validator", args, {
     stdio: process.env.SOLANA_VALIDATOR_LOG ? "inherit" : "ignore",
   });
@@ -107,7 +122,6 @@ export async function startClonedValidator(options: {
   for (let attempt = 0; attempt < 120; attempt++) {
     try {
       await connection.getSlot();
-      void feeRecipientToken;
       return { stop: () => child.kill(), connection, rpcUrl };
     } catch {
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -128,15 +142,17 @@ export async function runSolanaLocalReceive(
   balanceAfterBurn: bigint;
 }> {
   const { connection } = setup;
-  const usdc = new PublicKey(SOLANA_DEVNET.usdcMint);
+  const usdc = SOLANA_DEVNET_USDC;
   const payer = Keypair.generate();
   const airdrop = await connection.requestAirdrop(payer.publicKey, 5_000_000_000);
   await connection.confirmTransaction(airdrop, "confirmed");
 
-  const pdas = derivePdas(usdc, ARC_DOMAIN);
+  const pdas = derivePdas(usdc, CCTP_DOMAINS.arc);
   const remote = await connection.getAccountInfo(pdas.remoteTokenMessenger);
   if (!remote) throw new Error("remote token messenger missing on the local validator");
-  const arcTokenMessenger = bytesToHex(remote.data.subarray(8 + 4, 8 + 4 + 32));
+  const arcTokenMessenger = bytesToHex(
+    remote.data.subarray(REMOTE_TOKEN_MESSENGER_ADDRESS_OFFSET, REMOTE_TOKEN_MESSENGER_ADDRESS_OFFSET + 32),
+  );
 
   const recipient = getAssociatedTokenAddressSync(usdc, payer.publicKey);
   const feeRecipient = await readFeeRecipient(connection, usdc);
@@ -152,18 +168,18 @@ export async function runSolanaLocalReceive(
 
   const amount = 3_000_000n;
   const message = encodeMessage({
-    version: 1,
-    sourceDomain: ARC_DOMAIN,
-    destinationDomain: 5,
+    version: MESSAGE_VERSION,
+    sourceDomain: CCTP_DOMAINS.arc,
+    destinationDomain: CCTP_DOMAINS.solana,
     nonce: keccak256(toHex(`solana-local-${Date.now()}`)),
     sender: arcTokenMessenger,
     recipient: bytesToHex(SOLANA_PROGRAMS.tokenMessengerMinterV2.toBytes()),
-    destinationCaller: `0x${"00".repeat(32)}`,
-    minFinalityThreshold: 1000,
-    finalityThresholdExecuted: 1000,
+    destinationCaller: ZERO_BYTES32,
+    minFinalityThreshold: FINALITY_FAST,
+    finalityThresholdExecuted: FINALITY_FAST,
     body: encodeBurnBody({
-      version: 1,
-      burnToken: padHex(ARC_USDC_ON_ARC, { size: 32 }),
+      version: BURN_BODY_VERSION,
+      burnToken: ARC_USDC_WORD,
       mintRecipient: bytesToHex(recipient.toBytes()),
       amount,
       messageSender: `0x${"ab".repeat(32)}`,
@@ -175,7 +191,7 @@ export async function runSolanaLocalReceive(
   });
   const attestation = await attester.attest(message);
   const driver = new SolanaDriver(connection, payer, usdc);
-  const signature = await driver.receive({ message, attestation, remoteToken: padHex(ARC_USDC_ON_ARC, { size: 32 }) });
+  const signature = await driver.receive({ message, attestation, remoteToken: ARC_USDC_WORD });
   const minted = await driver.usdcBalance();
 
   const executor = padHex("0x00000000000000000000000000000000000000ee", { size: 32 });
@@ -186,11 +202,11 @@ export async function runSolanaLocalReceive(
   });
   const burn = await driver.burn({
     amount: 1_000_000n,
-    destinationDomain: ARC_DOMAIN,
+    destinationDomain: CCTP_DOMAINS.arc,
     mintRecipient: executor,
     destinationCaller: executor,
     maxFee: 0n,
-    minFinalityThreshold: 1000,
+    minFinalityThreshold: FINALITY_FAST,
     hookData,
   });
   const event = await connection.getAccountInfo(burn.messageSentEventData);

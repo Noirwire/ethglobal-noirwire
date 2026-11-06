@@ -1,4 +1,4 @@
-import { concatHex, keccak256, type Hex } from "viem";
+import { concatHex, isHex, keccak256, type Hex } from "viem";
 import { privateKeyToAccount, sign } from "viem/accounts";
 import { z } from "zod";
 
@@ -34,14 +34,11 @@ export interface Attester {
   fetchAttestation(query: AttestationQuery): Promise<Attestation>;
 }
 
-const hexString = z.string().regex(/^0x[0-9a-fA-F]*$/);
-
 const irisMessage = z.object({
   message: z.string(),
   eventNonce: z.string().optional(),
   attestation: z.string().nullable().optional(),
   status: z.string(),
-  cctpVersion: z.number().optional(),
   delayReason: z.string().nullable().optional(),
   forwardState: z.string().optional(),
   forwardTxHash: z.string().optional(),
@@ -68,13 +65,13 @@ export function parseIrisResponse(body: unknown): Attestation {
   const parsed = irisResponse.parse(body);
   const entry = parsed.messages[0];
   if (!entry) return { status: "pending" };
-  const attestationReady = entry.status === "complete" && entry.attestation && hexString.safeParse(entry.attestation).success;
+  const attestation = entry.status === "complete" && entry.attestation && isHex(entry.attestation) ? entry.attestation : undefined;
   const forwardState = entry.forwardState?.toUpperCase();
   const decoded = entry.decodedMessage;
   return {
-    status: attestationReady ? "complete" : "pending",
-    message: hexString.safeParse(entry.message).success && entry.message !== "0x" ? (entry.message as Hex) : undefined,
-    attestation: attestationReady ? (entry.attestation as Hex) : undefined,
+    status: attestation ? "complete" : "pending",
+    message: isHex(entry.message) && entry.message !== "0x" ? entry.message : undefined,
+    attestation,
     eventNonce: entry.eventNonce,
     decoded: decoded
       ? {
@@ -113,14 +110,6 @@ export class IrisClient implements Attester {
     return parseIrisResponse(await response.json());
   }
 
-  async fees(sourceDomain: number, destinationDomain: number, forward?: { hyperCoreDeposit: boolean }) {
-    const params = forward ? `?forward=true${forward.hyperCoreDeposit ? "&hyperCoreDeposit=true" : ""}` : "";
-    const response = await this.fetchImpl(`${this.baseUrl}/v2/burn/USDC/fees/${sourceDomain}/${destinationDomain}${params}`);
-    if (!response.ok) throw new Error(`Iris fees ${response.status}`);
-    return z
-      .array(z.object({ finalityThreshold: z.number(), minimumFee: z.number(), forwardFee: z.unknown().optional() }))
-      .parse(await response.json());
-  }
 }
 
 export class LocalAttester implements Attester {

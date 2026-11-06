@@ -6,10 +6,8 @@ import type { EvmDriver } from "./evm.ts";
 import { encodeForwardHookData, encodeVaultHookData, HYPERCORE_DEX } from "./hooks.ts";
 import type { HyperCoreReader } from "./hyperliquid.ts";
 import type { Attester } from "./iris.ts";
-import { addressToBytes32, decodeBurnBody, decodeMessage, FINALITY_FAST } from "./message.ts";
+import { addressToBytes32, decodeBurnBody, decodeMessage, FINALITY_FAST, ZERO_BYTES32 } from "./message.ts";
 import type { SolanaDriver } from "./solana.ts";
-
-const ZERO_BYTES32 = `0x${"0".repeat(64)}` as Hex;
 
 export class ArcHypercoreAdapter implements RouteAdapter {
   constructor(
@@ -19,7 +17,6 @@ export class ArcHypercoreAdapter implements RouteAdapter {
       forwarder: Hex;
       recipient: Hex;
       reader: HyperCoreReader;
-      dex?: number;
     },
   ) {}
 
@@ -32,7 +29,7 @@ export class ArcHypercoreAdapter implements RouteAdapter {
       destinationCaller: forwarder,
       maxFee: BigInt(transfer.maxFee),
       minFinalityThreshold: FINALITY_FAST,
-      hookData: encodeForwardHookData(this.options.recipient, this.options.dex ?? HYPERCORE_DEX.perps),
+      hookData: encodeForwardHookData(this.options.recipient, HYPERCORE_DEX.perps),
     });
     return { burnTx };
   }
@@ -123,9 +120,7 @@ export class SolanaArcAdapter implements RouteAdapter {
     return { status: "done", state: "hook-executed", tx };
   }
 
-  async hookOutcome(transfer: BridgeTransfer): Promise<"vault-credited" | "claimable"> {
-    const outcome = await this.evm.hookOutcome(transfer.mintTx as Hex);
-    if (outcome === "quarantined") throw new Error("deposit quarantined by the HookExecutor, owner action needed");
-    return outcome;
+  hookOutcome(transfer: BridgeTransfer): Promise<"vault-credited" | "claimable"> {
+    return this.evm.creditedHookOutcome(transfer.mintTx as Hex);
   }
 }
