@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { makerFill, toBaseUnits, type MakerFill } from "@noirwire/shared";
+import { BTC_DECIMALS, makerFill, toBaseUnits, type MakerFill } from "@noirwire/shared";
 import type { FillBatch, FillSource } from "../types.ts";
 
 export function parseReplayFile(path: string): MakerFill[] {
@@ -55,7 +55,7 @@ export function scriptedDemoFills(market: string, startMs: number, stepMs = 1000
     fillId: `demo-${index + 1}`,
     market,
     makerSide,
-    size: toBaseUnits(size, 8).toString(),
+    size: toBaseUnits(size, BTC_DECIMALS).toString(),
     price,
     filledAt: new Date(startMs + index * stepMs).toISOString(),
   }));

@@ -3,7 +3,7 @@ import { HedgeController, type ControllerConfig } from "../src/controller.ts";
 import { EventBus } from "../src/events.ts";
 import { Journal, MemoryJournalStore } from "../src/journal.ts";
 import { ReplayFillSource } from "../src/sources/replay.ts";
-import type { AquaOutlet, ReferencePriceSource } from "../src/types.ts";
+import type { ReferencePriceSource } from "../src/types.ts";
 import { MockVenue, type MockVenueOptions } from "../src/venue/mock-venue.ts";
 
 export const MARK_PX8 = 100_000n * 100_000_000n;
@@ -44,7 +44,6 @@ export interface HarnessOptions {
   clock?: TestClock;
   source?: ReplayFillSource;
   reference?: ReferencePriceSource;
-  aqua?: AquaOutlet;
   newCloid?: () => string;
 }
 
@@ -68,9 +67,23 @@ export function makeHarness(options: HarnessOptions = {}) {
     newCloid: options.newCloid ?? counterCloids(),
     config: options.config,
     reference: options.reference,
-    aqua: options.aqua,
   });
   return { clock, venue, source, store, bus, controller };
+}
+
+export function restartController(
+  previous: Pick<ReturnType<typeof makeHarness>, "venue" | "store" | "clock">,
+  config?: Partial<ControllerConfig>,
+): HedgeController {
+  return new HedgeController({
+    venue: previous.venue,
+    fillSource: new ReplayFillSource([], 50),
+    journal: new Journal(previous.store),
+    bus: new EventBus(),
+    clock: previous.clock.now,
+    newCloid: counterCloids(),
+    config,
+  });
 }
 
 export function netResidual8(controller: HedgeController, venue: MockVenue): bigint {

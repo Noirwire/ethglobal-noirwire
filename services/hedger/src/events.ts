@@ -3,7 +3,7 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import { dirname } from "node:path";
 import { flowEvent, type FlowEvent } from "@noirwire/shared";
 
-export const ALLOWED_ORIGIN = "http://localhost:3000";
+const ALLOWED_ORIGIN = "http://localhost:3000";
 const BACKLOG_LIMIT = 200;
 
 export type EventListener = (event: FlowEvent) => void;

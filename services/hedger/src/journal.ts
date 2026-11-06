@@ -1,6 +1,6 @@
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, existsSync, writeSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
-import { makerFill } from "@noirwire/shared";
+import { makerFill, type MakerFill, type Side } from "@noirwire/shared";
 import { z } from "zod";
 
 const bigintString = z.string().regex(/^-?\d+$/);
@@ -113,7 +113,7 @@ export class Journal {
 
 export interface JournalOrder {
   cloid: string;
-  side: "buy" | "sell";
+  side: Side;
   size8: bigint;
   limitPx8: bigint;
   reduceOnly: boolean;
@@ -128,7 +128,7 @@ export interface JournalOrder {
 }
 
 export interface JournalState {
-  fills: Map<string, z.infer<typeof makerFill>>;
+  fills: Map<string, MakerFill>;
   orders: Map<string, JournalOrder>;
 }
 
@@ -142,45 +142,43 @@ export function replayJournal(entries: JournalEntry[]): JournalState {
   return state;
 }
 
+function settleOrder(order: JournalOrder, entry: { filled8: string; avgPx8?: string }, final: string): void {
+  order.filled8 = BigInt(entry.filled8);
+  if (entry.avgPx8) order.avgPx8 = BigInt(entry.avgPx8);
+  order.settled = true;
+  order.final = final;
+}
+
 export function applyEntry(state: JournalState, entry: JournalEntry): void {
-  {
-    if (entry.type === "fill") {
-      state.fills.set(entry.fill.fillId, entry.fill);
-    } else if (entry.type === "intent") {
-      state.orders.set(entry.cloid, {
-        cloid: entry.cloid,
-        side: entry.side,
-        size8: BigInt(entry.size8),
-        limitPx8: BigInt(entry.limitPx8),
-        reduceOnly: entry.reduceOnly,
-        positionBefore8: BigInt(entry.positionBefore8),
-        sourceFillIds: entry.sourceFillIds,
-        intentAt: entry.t,
-        settled: false,
-        filled8: 0n,
-      });
-    } else if (entry.type === "outcome") {
-      const order = state.orders.get(entry.cloid);
-      if (!order) return;
-      order.filled8 = BigInt(entry.filled8);
-      if (entry.avgPx8) order.avgPx8 = BigInt(entry.avgPx8);
-      order.settled = true;
-      order.final = entry.outcome;
-      order.reason = entry.reason;
-    } else if (entry.type === "resolved") {
-      const order = state.orders.get(entry.cloid);
-      if (!order) return;
-      order.filled8 = BigInt(entry.filled8);
-      if (entry.avgPx8) order.avgPx8 = BigInt(entry.avgPx8);
-      order.settled = true;
-      order.final = entry.final;
-    } else if (entry.type === "unresolved") {
-      const order = state.orders.get(entry.cloid);
-      if (order) {
-        order.settled = false;
-        order.reason = entry.reason;
-      }
-    }
+  if (entry.type === "fill") {
+    state.fills.set(entry.fill.fillId, entry.fill);
+    return;
+  }
+  if (entry.type === "intent") {
+    state.orders.set(entry.cloid, {
+      cloid: entry.cloid,
+      side: entry.side,
+      size8: BigInt(entry.size8),
+      limitPx8: BigInt(entry.limitPx8),
+      reduceOnly: entry.reduceOnly,
+      positionBefore8: BigInt(entry.positionBefore8),
+      sourceFillIds: entry.sourceFillIds,
+      intentAt: entry.t,
+      settled: false,
+      filled8: 0n,
+    });
+    return;
+  }
+  const order = state.orders.get(entry.cloid);
+  if (!order) return;
+  if (entry.type === "outcome") {
+    settleOrder(order, entry, entry.outcome);
+    order.reason = entry.reason;
+  } else if (entry.type === "resolved") {
+    settleOrder(order, entry, entry.final);
+  } else {
+    order.settled = false;
+    order.reason = entry.reason;
   }
 }
 

@@ -1,13 +1,12 @@
-import { abs, notionalUsd6, PRICE_DECIMALS, sizeForNotionalCeil } from "./numbers.ts";
+import { BTC_DECIMALS } from "@noirwire/shared";
+import { max, notionalUsd6, PRICE_DECIMALS, sizeForNotionalCeil } from "./numbers.ts";
 import type { Side } from "./types.ts";
 
-export const PERP_MAX_DECIMALS = 6;
-export const MAX_SIGNIFICANT_FIGURES = 5;
-
-const SIZE_SCALE_DECIMALS = 8;
+const PERP_MAX_DECIMALS = 6;
+const MAX_SIGNIFICANT_FIGURES = 5;
 
 function sizeUnit(szDecimals: number): bigint {
-  return 10n ** BigInt(SIZE_SCALE_DECIMALS - szDecimals);
+  return 10n ** BigInt(BTC_DECIMALS - szDecimals);
 }
 
 export function roundSizeDown(size8: bigint, szDecimals: number): bigint {
@@ -23,7 +22,7 @@ export function roundSizeUp(size8: bigint, szDecimals: number): bigint {
 export function minOrderSize(limitPx8: bigint, szDecimals: number, minNotional6: bigint): bigint {
   const bySize = sizeUnit(szDecimals);
   const byNotional = roundSizeUp(sizeForNotionalCeil(minNotional6, limitPx8), szDecimals);
-  return byNotional > bySize ? byNotional : bySize;
+  return max(byNotional, bySize);
 }
 
 export function allowedPriceDecimals(px8: bigint, szDecimals: number): number {
@@ -63,5 +62,5 @@ export function isValidSize(size8: bigint, szDecimals: number): boolean {
 }
 
 export function meetsMinNotional(size8: bigint, limitPx8: bigint, minNotional6: bigint): boolean {
-  return notionalUsd6(abs(size8), limitPx8) >= minNotional6;
+  return notionalUsd6(size8, limitPx8) >= minNotional6;
 }

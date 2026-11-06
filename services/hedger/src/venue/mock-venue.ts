@@ -1,4 +1,4 @@
-import { abs, BPS, min, notionalUsd6 } from "../numbers.ts";
+import { abs, BPS, BPS_NUMBER, min, notionalUsd6 } from "../numbers.ts";
 import { isValidPerpPrice, isValidSize, meetsMinNotional, roundSizeDown } from "../hl-rules.ts";
 import type {
   AccountState,
@@ -69,10 +69,8 @@ export class MockVenue implements HedgeVenue {
   private stalePosition8 = 0n;
   private failCancels = false;
   private outage = false;
-  private statusOutage = false;
   private hideOrderStatus = new Set<string>();
   private statusOverrides = new Map<string, OrderStatus>();
-  private readHooks: Array<() => void> = [];
   private positionReadHook: (() => void) | null = null;
 
   constructor(options: MockVenueOptions) {
@@ -117,10 +115,6 @@ export class MockVenue implements HedgeVenue {
     this.outage = value;
   }
 
-  setStatusOutage(value: boolean): void {
-    this.statusOutage = value;
-  }
-
   hideStatusFor(cloid: string): void {
     this.hideOrderStatus.add(cloid);
   }
@@ -131,14 +125,6 @@ export class MockVenue implements HedgeVenue {
 
   onPositionRead(hook: (() => void) | null): void {
     this.positionReadHook = hook;
-  }
-
-  addReadHook(hook: () => void): void {
-    this.readHooks.push(hook);
-  }
-
-  externalTrade(delta8: bigint): void {
-    this.positionSize8 += delta8;
   }
 
   async position(): Promise<bigint> {
@@ -153,7 +139,6 @@ export class MockVenue implements HedgeVenue {
 
   async accountState(): Promise<AccountState> {
     this.assertUp();
-    for (const hook of this.readHooks) hook();
     const marginUsed = notionalUsd6(this.positionSize8, this.markPx8) / BigInt(this.spec.maxLeverage);
     return {
       accountValue6: this.accountValue6,
@@ -185,7 +170,6 @@ export class MockVenue implements HedgeVenue {
 
   async orderStatusByCloid(cloid: string): Promise<OrderStatus> {
     this.assertUp();
-    if (this.statusOutage) throw new Error("order status unavailable");
     const override = this.statusOverrides.get(cloid);
     if (override) return override;
     const order = this.orders.get(cloid);
@@ -229,7 +213,7 @@ export class MockVenue implements HedgeVenue {
     const sizeCap = request.reduceOnly ? min(request.size8, abs(this.positionSize8)) : request.size8;
 
     const ratio = this.fillRatioQueue.shift() ?? 1;
-    const wanted = roundSizeDown((sizeCap * BigInt(Math.round(ratio * 10_000))) / BPS, this.spec.szDecimals);
+    const wanted = roundSizeDown((sizeCap * BigInt(Math.round(ratio * BPS_NUMBER))) / BPS, this.spec.szDecimals);
     const walked = this.walkBook(request.side, wanted, request.limitPx8);
     if (walked.filled8 === 0n) {
       return { outcome: "unfilled", filled8: 0n, reason: "iocCancelRejected" };

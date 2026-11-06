@@ -1,3 +1,4 @@
+import { USDC_DECIMALS } from "@noirwire/shared";
 import { z } from "zod";
 
 export class ConfigError extends Error {}
@@ -68,11 +69,12 @@ export type HedgerConfig = {
 };
 
 function usdToUsd6(value: number): bigint {
-  return BigInt(Math.round(value * 1_000_000));
+  return BigInt(Math.round(value * 10 ** USDC_DECIMALS));
 }
 
 export function parseConfig(env: Record<string, string | undefined>): HedgerConfig {
-  const cleaned = Object.fromEntries(Object.entries(env).filter(([key, value]) => value !== undefined && (value !== "" || key === "HEDGE_ENABLED")),
+  const cleaned = Object.fromEntries(
+    Object.entries(env).filter(([key, value]) => value !== undefined && (value !== "" || key === "HEDGE_ENABLED")),
   );
   const parsed = envSchema.safeParse(cleaned);
   if (!parsed.success) {

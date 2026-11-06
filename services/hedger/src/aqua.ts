@@ -7,16 +7,3 @@ export class NoopAquaOutlet implements AquaOutlet {
     return 0n;
   }
 }
-
-export class FakeAquaOutlet implements AquaOutlet {
-  bands: Array<AquaBand | null> = [];
-  held8 = 0n;
-
-  async setBand(band: AquaBand | null): Promise<void> {
-    this.bands.push(band);
-  }
-
-  async inventory(): Promise<bigint> {
-    return this.held8;
-  }
-}

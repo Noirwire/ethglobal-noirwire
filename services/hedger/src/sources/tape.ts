@@ -1,16 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { hedgeSideFor, toBaseUnits, type MakerFill } from "@noirwire/shared";
+import { BTC_DECIMALS, hedgeSideFor, toBaseUnits, type MakerFill } from "@noirwire/shared";
 import { z } from "zod";
 import type { FillBatch, FillSource } from "../types.ts";
-
-const TAPE_SIDE_IS_TAKER_SIDE = true;
 
 const decimalLike = z.union([z.string(), z.number()]).transform((value) =>
   typeof value === "number" ? value.toFixed(8).replace(/\.?0+$/, "") : value,
 );
 
-export const tapeRow = z.object({
+const tapeRow = z.object({
   id: z.union([z.string(), z.number()]).transform(String),
   market: z.string().min(1),
   side: z.enum(["buy", "sell"]),
@@ -19,7 +17,6 @@ export const tapeRow = z.object({
   ts: z.union([z.number(), z.string()]),
   maker: z.boolean(),
 });
-export type TapeRow = z.infer<typeof tapeRow>;
 
 const tapeResponse = z.union([
   z.array(z.unknown()),
@@ -27,30 +24,24 @@ const tapeResponse = z.union([
 ]);
 
 function toIso(ts: number | string): string {
-  const date = typeof ts === "number" ? new Date(ts) : new Date(ts);
-  return date.toISOString();
+  return new Date(ts).toISOString();
 }
 
 export function mapTapeRow(raw: unknown, expectedMarket: string): MakerFill | null {
   const row = tapeRow.parse(raw);
   if (!row.maker) return null;
   if (row.market !== expectedMarket) return null;
-  const makerSide = TAPE_SIDE_IS_TAKER_SIDE ? hedgeSideFor(row.side) : row.side;
   return {
     fillId: row.id,
     market: row.market,
-    makerSide,
-    size: toBaseUnits(row.size, 8).toString(),
+    makerSide: hedgeSideFor(row.side),
+    size: toBaseUnits(row.size, BTC_DECIMALS).toString(),
     price: row.price,
     filledAt: toIso(row.ts),
   };
 }
 
-export function mapTapeResponse(
-  body: unknown,
-  market: string,
-  previousCursor: string,
-): FillBatch {
+export function mapTapeResponse(body: unknown, market: string, previousCursor: string): FillBatch {
   const parsed = tapeResponse.parse(body);
   const rows = Array.isArray(parsed) ? parsed : parsed.rows;
   const fills: MakerFill[] = [];
@@ -65,7 +56,7 @@ export function mapTapeResponse(
   return { fills, cursor };
 }
 
-export interface TapeFillSourceOptions {
+interface TapeFillSourceOptions {
   bookApiUrl: string;
   market: string;
   cursorFile: string;

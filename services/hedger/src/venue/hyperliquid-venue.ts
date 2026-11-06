@@ -12,9 +12,9 @@ import type {
   VenueSpec,
 } from "../types.ts";
 
-export const HL_DEFAULT_MIN_NOTIONAL6 = 10_000_000n;
+const HL_DEFAULT_MIN_NOTIONAL6 = 10_000_000n;
 
-export interface HlUniverseEntry {
+interface HlUniverseEntry {
   name: string;
   szDecimals: number;
   maxLeverage: number;
@@ -68,31 +68,32 @@ export interface HyperliquidVenueOptions {
   accountAddress: `0x${string}`;
   info: HlInfoLike;
   exchange: HlExchangeLike | null;
-  minNotional6?: bigint;
 }
 
 const NO_MATCH_MARKER = "could not immediately match";
 
+async function loadSpec(info: HlInfoLike, coin: string): Promise<VenueSpec> {
+  const { universe } = await info.meta();
+  const assetIndex = universe.findIndex((entry) => entry.name === coin);
+  const entry = universe[assetIndex];
+  if (!entry) throw new Error(`Hyperliquid universe has no ${coin} perp`);
+  return {
+    coin: entry.name,
+    assetIndex,
+    szDecimals: entry.szDecimals,
+    maxLeverage: entry.maxLeverage,
+    minNotional6: HL_DEFAULT_MIN_NOTIONAL6,
+  };
+}
+
 export class HyperliquidVenue implements HedgeVenue {
   private constructor(
     readonly spec: VenueSpec,
-    private readonly assetIndex: number,
     private readonly options: HyperliquidVenueOptions,
   ) {}
 
   static async connect(options: HyperliquidVenueOptions): Promise<HyperliquidVenue> {
-    const { universe } = await options.info.meta();
-    const assetIndex = universe.findIndex((entry) => entry.name === options.coin);
-    const entry = universe[assetIndex];
-    if (!entry) throw new Error(`Hyperliquid universe has no ${options.coin} perp`);
-    const spec: VenueSpec = {
-      coin: entry.name,
-      assetIndex,
-      szDecimals: entry.szDecimals,
-      maxLeverage: entry.maxLeverage,
-      minNotional6: options.minNotional6 ?? HL_DEFAULT_MIN_NOTIONAL6,
-    };
-    return new HyperliquidVenue(spec, assetIndex, options);
+    return new HyperliquidVenue(await loadSpec(options.info, options.coin), options);
   }
 
   async position(): Promise<bigint> {
@@ -106,7 +107,7 @@ export class HyperliquidVenue implements HedgeVenue {
       this.options.info.clearinghouseState({ user: this.options.accountAddress }),
       this.options.info.metaAndAssetCtxs(),
     ]);
-    const context = contexts[1][this.assetIndex];
+    const context = contexts[1][this.spec.assetIndex];
     if (!context) throw new Error("no asset context for BTC");
     return {
       accountValue6: usdFromDecimal(state.marginSummary.accountValue),
@@ -122,7 +123,7 @@ export class HyperliquidVenue implements HedgeVenue {
     const response = await exchange.order({
       orders: [
         {
-          a: this.assetIndex,
+          a: this.spec.assetIndex,
           b: request.side === "buy",
           p: priceToDecimal(request.limitPx8),
           s: btcToDecimal(request.size8),
@@ -140,7 +141,7 @@ export class HyperliquidVenue implements HedgeVenue {
   async cancelByCloid(cloid: string): Promise<void> {
     const exchange = this.requireExchange();
     const response = await exchange.cancelByCloid({
-      cancels: [{ asset: this.assetIndex, cloid: cloid as `0x${string}` }],
+      cancels: [{ asset: this.spec.assetIndex, cloid: cloid as `0x${string}` }],
     });
     const status = response.response.data.statuses[0];
     if (typeof status === "object" && status !== null && "error" in status) {
@@ -239,16 +240,5 @@ export async function connectHyperliquid(config: HyperliquidConnectionConfig): P
 
 export async function fetchHyperliquidSpec(coin: string, isTestnet: boolean): Promise<VenueSpec> {
   const transport = new HttpTransport({ isTestnet });
-  const info = new InfoClient({ transport }) as unknown as HlInfoLike;
-  const { universe } = await info.meta();
-  const assetIndex = universe.findIndex((item) => item.name === coin);
-  const entry = universe[assetIndex];
-  if (!entry) throw new Error(`Hyperliquid universe has no ${coin} perp`);
-  return {
-    coin: entry.name,
-    assetIndex,
-    szDecimals: entry.szDecimals,
-    maxLeverage: entry.maxLeverage,
-    minNotional6: HL_DEFAULT_MIN_NOTIONAL6,
-  };
+  return loadSpec(new InfoClient({ transport }) as unknown as HlInfoLike, coin);
 }

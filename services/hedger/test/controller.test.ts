@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { Journal, MemoryJournalStore } from "../src/journal.ts";
-import { HedgeController, randomCloid } from "../src/controller.ts";
-import { EventBus } from "../src/events.ts";
-import { ReplayFillSource } from "../src/sources/replay.ts";
-import { cloidFor, counterCloids, makeFill, makeHarness, MARK_PX8, netResidual8, TestClock } from "./harness.ts";
+import { MemoryJournalStore } from "../src/journal.ts";
+import { randomCloid } from "../src/controller.ts";
+import {
+  cloidFor,
+  makeFill,
+  makeHarness,
+  MARK_PX8,
+  netResidual8,
+  restartController,
+  TestClock,
+} from "./harness.ts";
 
 const BTC = 100_000_000n;
 
@@ -175,14 +181,7 @@ describe("convergence and recovery", () => {
     const statusSpy = vi.spyOn(venue, "orderStatusByCloid");
     const placeSpy = vi.spyOn(venue, "placeIoc");
 
-    const restarted = new HedgeController({
-      venue,
-      fillSource: new ReplayFillSource([], 50),
-      journal: new Journal(store),
-      bus: new EventBus(),
-      clock: clock.now,
-      newCloid: counterCloids(),
-    });
+    const restarted = restartController(before);
     await restarted.start();
 
     expect(statusSpy).toHaveBeenCalledWith(pending);
@@ -204,15 +203,7 @@ describe("convergence and recovery", () => {
     crashed.venue.hideStatusFor(cloidFor(1));
     await crashed.controller.tick();
 
-    const restarted = new HedgeController({
-      venue: crashed.venue,
-      fillSource: new ReplayFillSource([], 50),
-      journal: new Journal(store),
-      bus: new EventBus(),
-      clock: clock.now,
-      newCloid: counterCloids(),
-      config: { unknownOrderGraceMs: 10_000 },
-    });
+    const restarted = restartController(crashed, { unknownOrderGraceMs: 10_000 });
     await restarted.start();
     expect((await restarted.tick()).decision).toBe("hold:unresolved-order");
 

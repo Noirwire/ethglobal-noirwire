@@ -1,9 +1,9 @@
-import { fromBaseUnits, toBaseUnits } from "@noirwire/shared";
+import { BTC_DECIMALS, fromBaseUnits, USDC_DECIMALS } from "@noirwire/shared";
 
-export const BTC_UNIT = 100_000_000n;
 export const PRICE_DECIMALS = 8;
-export const USD_DECIMALS = 6;
 export const BPS = 10_000n;
+export const BPS_NUMBER = Number(BPS);
+export const SIZE_TIMES_PRICE_PER_USD6 = 10n ** BigInt(BTC_DECIMALS + PRICE_DECIMALS - USDC_DECIMALS);
 
 export function parseDecimalTruncating(value: string, decimals: number): bigint {
   const negative = value.startsWith("-");
@@ -13,7 +13,7 @@ export function parseDecimalTruncating(value: string, decimals: number): bigint 
 }
 
 export function btcFromDecimal(value: string): bigint {
-  return parseDecimalTruncating(value, 8);
+  return parseDecimalTruncating(value, BTC_DECIMALS);
 }
 
 export function priceFromDecimal(value: string): bigint {
@@ -21,23 +21,15 @@ export function priceFromDecimal(value: string): bigint {
 }
 
 export function usdFromDecimal(value: string): bigint {
-  return parseDecimalTruncating(value, USD_DECIMALS);
+  return parseDecimalTruncating(value, USDC_DECIMALS);
 }
 
 export function btcToDecimal(units: bigint): string {
-  return fromBaseUnits(units, 8);
+  return fromBaseUnits(units, BTC_DECIMALS);
 }
 
 export function priceToDecimal(px8: bigint): string {
   return fromBaseUnits(px8, PRICE_DECIMALS);
-}
-
-export function strictBtc(decimal: string): bigint {
-  return toBaseUnits(decimal, 8);
-}
-
-export function strictPrice(decimal: string): bigint {
-  return toBaseUnits(decimal, PRICE_DECIMALS);
 }
 
 export function abs(value: bigint): bigint {
@@ -53,11 +45,15 @@ export function max(a: bigint, b: bigint): bigint {
 }
 
 export function notionalUsd6(size8: bigint, px8: bigint): bigint {
-  return (abs(size8) * px8) / 10_000_000_000n;
+  return (abs(size8) * px8) / SIZE_TIMES_PRICE_PER_USD6;
 }
 
 export function sizeForNotionalCeil(notionalUsd6Value: bigint, px8: bigint): bigint {
   if (px8 <= 0n) throw new Error("price must be positive");
-  const numerator = notionalUsd6Value * 10_000_000_000n;
+  const numerator = notionalUsd6Value * SIZE_TIMES_PRICE_PER_USD6;
   return (numerator + px8 - 1n) / px8;
+}
+
+export function sizeForNotionalFloor(notionalUsd6Value: bigint, px8: bigint): bigint {
+  return (notionalUsd6Value * SIZE_TIMES_PRICE_PER_USD6) / px8;
 }

@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
-import { NoopAquaOutlet } from "./aqua.ts";
+import type { FlowEvent } from "@noirwire/shared";
 import { parseConfig, type HedgerConfig } from "./config.ts";
-import { HedgeController } from "./controller.ts";
+import { DEFAULT_CONTROLLER_CONFIG, HedgeController } from "./controller.ts";
 import { createEventServer, EventBus } from "./events.ts";
 import { FileJournalStore, Journal, MemoryJournalStore } from "./journal.ts";
 import { ReplayFillSource, scriptedDemoFills } from "./sources/replay.ts";
@@ -45,7 +45,7 @@ function buildFillSource(config: HedgerConfig): ReplayFillSource | TapeFillSourc
   return new ReplayFillSource(scriptedDemoFills(config.bookMarket, Date.now()));
 }
 
-function describeEvent(event: ReturnType<EventBus["recent"]>[number]): string {
+function describeEvent(event: FlowEvent): string {
   switch (event.kind) {
     case "fill":
       return `fill ${event.fill.fillId} maker ${event.fill.makerSide} ${event.fill.size} @ ${event.fill.price}`;
@@ -100,7 +100,6 @@ export async function main(env: Record<string, string | undefined> = process.env
     fillSource,
     journal,
     bus,
-    aqua: new NoopAquaOutlet(),
     config: {
       market: config.bookMarket,
       enabled: config.hedgeEnabled,
@@ -115,8 +114,8 @@ export async function main(env: Record<string, string | undefined> = process.env
       unknownOrderGraceMs: demo ? 0 : config.unknownOrderGraceMs,
       leverageTarget: config.leverageTarget,
       initialMakerPosition8: config.initialMakerPosition8,
-      backoffBaseMs: demo ? DEMO_TICK_MS : 2_000,
-      backoffMaxMs: demo ? DEMO_TICK_MS * 4 : 60_000,
+      backoffBaseMs: demo ? DEMO_TICK_MS : DEFAULT_CONTROLLER_CONFIG.backoffBaseMs,
+      backoffMaxMs: demo ? DEMO_TICK_MS * 4 : DEFAULT_CONTROLLER_CONFIG.backoffMaxMs,
     },
   });
 
